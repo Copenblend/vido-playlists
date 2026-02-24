@@ -10,7 +10,15 @@
   "pluginClass": "PlaylistPlugin.PlaylistPlugin",
   "minVidoVersion": "0.8.0",
   "tags": ["playlist", "queue", "playback"],
-  "icon": "Assets/Icons/sidebar-icon.png",
+  "icon": "Assets/Playlist-plugin.png",
   "contributes": {
+    "sidebar": [
+      {
+        "id": "playlist-sidebar",
+        "title": "Playlists",
+        "icon": "Assets/Icons/sidebar-icon.png",
+        "order": 100
+      }
+    ]
   }
 }
