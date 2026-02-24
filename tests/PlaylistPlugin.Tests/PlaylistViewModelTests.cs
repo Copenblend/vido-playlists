@@ -16,6 +16,7 @@ public class PlaylistViewModelTests : IDisposable
     private readonly Mock<IDialogService> _dialogMock;
     private readonly Mock<IPluginSettingsStore> _settingsMock;
     private readonly PlaylistFileService _fileService;
+    private readonly PlaylistProvider _playlistProvider;
     private readonly PlaylistViewModel _vm;
     private readonly string _tempDir;
     private readonly List<string> _statusBarUpdates;
@@ -41,13 +42,15 @@ public class PlaylistViewModelTests : IDisposable
         _settingsMock.Setup(s => s.Get("recentPlaylists", string.Empty)).Returns(string.Empty);
 
         _fileService = new PlaylistFileService();
+        _playlistProvider = new PlaylistProvider();
         _vm = new PlaylistViewModel(
             _fileService,
             _engineMock.Object,
             _eventBusMock.Object,
             _dialogMock.Object,
             _settingsMock.Object,
-            text => _statusBarUpdates.Add(text));
+            text => _statusBarUpdates.Add(text),
+            playlistProvider: _playlistProvider);
 
         _tempDir = Path.Combine(Path.GetTempPath(), "PlaylistVmTests_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
@@ -1206,5 +1209,199 @@ public class PlaylistViewModelTests : IDisposable
 
         Assert.Equal("b.mp4", _vm.Items[1].FileName);
         Assert.False(_vm.CurrentPlaylist.IsDirty);
+    }
+
+    // ── Playlist Playback (vp-009) ──
+
+    private void CreateTempVideo(string name)
+    {
+        File.WriteAllText(Path.Combine(_tempDir, name), "fake");
+    }
+
+    private string TempPath(string name) => Path.Combine(_tempDir, name);
+
+    [Fact]
+    public void PlayItemCommand_ActivatesPlaylistProvider()
+    {
+        CreateTempVideo("a.mp4");
+        CreateTempVideo("b.mp4");
+        _vm.AddItem(TempPath("a.mp4"));
+        _vm.AddItem(TempPath("b.mp4"));
+
+        _vm.PlayItemCommand.Execute(_vm.Items[0]);
+
+        Assert.True(_playlistProvider.IsActive);
+        Assert.Equal(0, _playlistProvider.CurrentIndex);
+    }
+
+    [Fact]
+    public void PlayItemCommand_ActivatesProviderAtCorrectIndex()
+    {
+        CreateTempVideo("a.mp4");
+        CreateTempVideo("b.mp4");
+        CreateTempVideo("c.mp4");
+        _vm.AddItem(TempPath("a.mp4"));
+        _vm.AddItem(TempPath("b.mp4"));
+        _vm.AddItem(TempPath("c.mp4"));
+
+        _vm.PlayItemCommand.Execute(_vm.Items[2]);
+
+        Assert.True(_playlistProvider.IsActive);
+        Assert.Equal(2, _playlistProvider.CurrentIndex);
+    }
+
+    [Fact]
+    public void VideoLoadedEvent_PlaylistItem_UpdatesProviderIndex()
+    {
+        CreateTempVideo("a.mp4");
+        CreateTempVideo("b.mp4");
+        CreateTempVideo("c.mp4");
+        _vm.AddItem(TempPath("a.mp4"));
+        _vm.AddItem(TempPath("b.mp4"));
+        _vm.AddItem(TempPath("c.mp4"));
+
+        // Activate by playing first item
+        _vm.PlayItemCommand.Execute(_vm.Items[0]);
+        Assert.Equal(0, _playlistProvider.CurrentIndex);
+
+        // Simulate Vido loading the second video (e.g., via provider's GetNextFile)
+        _videoLoadedHandler?.Invoke(new VideoLoadedEvent
+        {
+            FilePath = TempPath("b.mp4"),
+            Metadata = new VideoMetadata
+            {
+                FilePath = TempPath("b.mp4"),
+                FileName = "b.mp4",
+                Width = 1920, Height = 1080,
+                Duration = TimeSpan.FromMinutes(1)
+            }
+        });
+
+        Assert.Equal(1, _playlistProvider.CurrentIndex);
+        Assert.True(_playlistProvider.IsActive);
+    }
+
+    [Fact]
+    public void VideoLoadedEvent_NonPlaylistVideo_DeactivatesProvider()
+    {
+        CreateTempVideo("a.mp4");
+        CreateTempVideo("b.mp4");
+        _vm.AddItem(TempPath("a.mp4"));
+        _vm.AddItem(TempPath("b.mp4"));
+
+        // Activate by playing
+        _vm.PlayItemCommand.Execute(_vm.Items[0]);
+        Assert.True(_playlistProvider.IsActive);
+
+        // Simulate loading a video NOT in the playlist (e.g., user opened from explorer)
+        _videoLoadedHandler?.Invoke(new VideoLoadedEvent
+        {
+            FilePath = @"C:\Videos\other.mp4",
+            Metadata = new VideoMetadata
+            {
+                FilePath = @"C:\Videos\other.mp4",
+                FileName = "other.mp4",
+                Width = 1920, Height = 1080,
+                Duration = TimeSpan.FromMinutes(1)
+            }
+        });
+
+        Assert.False(_playlistProvider.IsActive);
+        Assert.Null(_vm.CurrentItem);
+    }
+
+    [Fact]
+    public void NewPlaylistCommand_DeactivatesProvider()
+    {
+        CreateTempVideo("a.mp4");
+        _vm.AddItem(TempPath("a.mp4"));
+        _vm.PlayItemCommand.Execute(_vm.Items[0]);
+        Assert.True(_playlistProvider.IsActive);
+
+        // Answer "Don't Save" so NewPlaylist proceeds
+        _dialogMock.Setup(d => d.ShowConfirmationDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(false);
+
+        _vm.NewPlaylistCommand.Execute(null);
+
+        Assert.False(_playlistProvider.IsActive);
+    }
+
+    [Fact]
+    public async Task LoadPlaylist_DeactivatesProvider()
+    {
+        CreateTempVideo("a.mp4");
+        _vm.AddItem(TempPath("a.mp4"));
+        _vm.PlayItemCommand.Execute(_vm.Items[0]);
+        Assert.True(_playlistProvider.IsActive);
+
+        // Save a playlist file to load
+        var savePath = Path.Combine(_tempDir, "test.vidpl");
+        _vm.CurrentPlaylist.IsDirty = false;
+        var newVm = new PlaylistViewModel(
+            _fileService,
+            _engineMock.Object,
+            _eventBusMock.Object,
+            _dialogMock.Object);
+        newVm.AddItem(@"C:\Videos\x.mp4");
+        await _fileService.SaveAsync(newVm.CurrentPlaylist, savePath);
+        newVm.Dispose();
+
+        // Load should deactivate provider
+        _vm.CurrentPlaylist.IsDirty = false;
+        await _vm.LoadPlaylistFromPathAsync(savePath);
+
+        Assert.False(_playlistProvider.IsActive);
+    }
+
+    [Fact]
+    public void PlaylistProvider_GetNextFile_WorksAfterPlayItem()
+    {
+        CreateTempVideo("a.mp4");
+        CreateTempVideo("b.mp4");
+        CreateTempVideo("c.mp4");
+        _vm.AddItem(TempPath("a.mp4"));
+        _vm.AddItem(TempPath("b.mp4"));
+        _vm.AddItem(TempPath("c.mp4"));
+
+        _vm.PlayItemCommand.Execute(_vm.Items[0]);
+
+        var next = _playlistProvider.GetNextFile();
+
+        Assert.Equal(TempPath("b.mp4"), next);
+    }
+
+    [Fact]
+    public void PlaylistProvider_LoopsFromLastToFirst()
+    {
+        CreateTempVideo("a.mp4");
+        CreateTempVideo("b.mp4");
+        CreateTempVideo("c.mp4");
+        _vm.AddItem(TempPath("a.mp4"));
+        _vm.AddItem(TempPath("b.mp4"));
+        _vm.AddItem(TempPath("c.mp4"));
+
+        _vm.PlayItemCommand.Execute(_vm.Items[2]);
+
+        var next = _playlistProvider.GetNextFile();
+
+        Assert.Equal(TempPath("a.mp4"), next);
+    }
+
+    [Fact]
+    public void PlaylistProvider_GetPreviousFile_LoopsFromFirstToLast()
+    {
+        CreateTempVideo("a.mp4");
+        CreateTempVideo("b.mp4");
+        CreateTempVideo("c.mp4");
+        _vm.AddItem(TempPath("a.mp4"));
+        _vm.AddItem(TempPath("b.mp4"));
+        _vm.AddItem(TempPath("c.mp4"));
+
+        _vm.PlayItemCommand.Execute(_vm.Items[0]);
+
+        var prev = _playlistProvider.GetPreviousFile();
+
+        Assert.Equal(TempPath("c.mp4"), prev);
     }
 }

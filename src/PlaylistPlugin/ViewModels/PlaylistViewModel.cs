@@ -26,6 +26,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     private readonly IPluginSettingsStore? _settings;
     private readonly Action<string>? _updateStatusBar;
     private readonly ToastService? _toastService;
+    private readonly PlaylistProvider? _playlistProvider;
 
     private Playlist _currentPlaylist;
     private PlaylistItemViewModel? _currentItem;
@@ -206,7 +207,8 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         IDialogService dialogService,
         IPluginSettingsStore? settings = null,
         Action<string>? updateStatusBar = null,
-        ToastService? toastService = null)
+        ToastService? toastService = null,
+        PlaylistProvider? playlistProvider = null)
     {
         ArgumentNullException.ThrowIfNull(fileService);
         ArgumentNullException.ThrowIfNull(videoEngine);
@@ -220,6 +222,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         _settings = settings;
         _updateStatusBar = updateStatusBar;
         _toastService = toastService;
+        _playlistProvider = playlistProvider;
 
         _currentPlaylist = _fileService.CreateNew();
         _playlistName = _currentPlaylist.Name;
@@ -493,6 +496,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         if (!PromptSaveDirtyPlaylist()) return;
         CurrentPlaylist = _fileService.CreateNew();
         CurrentItem = null;
+        _playlistProvider?.Deactivate();
         UpdateStatusText();
     }
 
@@ -501,6 +505,12 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         if (item == null || !item.FileExists) return;
 
         CurrentItem = item;
+
+        // Activate playlist provider so Vido delegates next/previous to us
+        var index = Items.IndexOf(item);
+        if (index >= 0)
+            _playlistProvider?.Activate(_currentPlaylist.Items, index);
+
         _eventBus.Publish(new PlayFileRequestedEvent { FilePath = item.FilePath });
         UpdateStatusText();
     }
@@ -551,6 +561,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
             var playlist = await _fileService.LoadAsync(path);
             CurrentPlaylist = playlist;
             CurrentItem = null;
+            _playlistProvider?.Deactivate();
 
             // Derive display name from file name
             PlaylistName = Path.GetFileNameWithoutExtension(path);
@@ -716,6 +727,20 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
             string.Equals(i.FilePath, e.FilePath, StringComparison.OrdinalIgnoreCase));
 
         CurrentItem = match;
+
+        if (match is not null && _playlistProvider is not null)
+        {
+            // Video is in the playlist — update the provider's index
+            var index = Items.IndexOf(match);
+            if (_playlistProvider.IsActive)
+                _playlistProvider.SetCurrentIndex(index);
+        }
+        else if (match is null && _playlistProvider is not null)
+        {
+            // Video is NOT in the playlist — deactivate playlist mode
+            _playlistProvider.Deactivate();
+        }
+
         UpdateStatusText();
     }
 
