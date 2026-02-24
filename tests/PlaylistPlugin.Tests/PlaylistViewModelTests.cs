@@ -885,4 +885,326 @@ public class PlaylistViewModelTests : IDisposable
         // File should be saved (auto-save triggered)
         Assert.True(File.Exists(savePath));
     }
+
+    // ── RemoveItem ──
+
+    [Fact]
+    public void RemoveItem_RemovesItemFromPlaylist()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+        _vm.AddItem(@"C:\Videos\c.mp4");
+
+        var itemB = _vm.Items[1];
+        _vm.RemoveItem(itemB);
+
+        Assert.Equal(2, _vm.Items.Count);
+        Assert.Equal("a.mp4", _vm.Items[0].FileName);
+        Assert.Equal("c.mp4", _vm.Items[1].FileName);
+    }
+
+    [Fact]
+    public void RemoveItem_ClearsCurrentItemWhenRemoved()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+
+        var itemA = _vm.Items[0];
+        _vm.CurrentItem = itemA;
+
+        _vm.RemoveItem(itemA);
+
+        Assert.Null(_vm.CurrentItem);
+        Assert.Single(_vm.Items);
+    }
+
+    [Fact]
+    public void RemoveItem_DoesNotClearCurrentItemWhenOtherRemoved()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+
+        var itemA = _vm.Items[0];
+        var itemB = _vm.Items[1];
+        _vm.CurrentItem = itemA;
+
+        _vm.RemoveItem(itemB);
+
+        Assert.Same(itemA, _vm.CurrentItem);
+        Assert.Single(_vm.Items);
+    }
+
+    [Fact]
+    public void RemoveItem_RemovesLastItem_HasItemsBecomesFalse()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        Assert.True(_vm.HasItems);
+
+        _vm.RemoveItem(_vm.Items[0]);
+
+        Assert.False(_vm.HasItems);
+        Assert.Empty(_vm.Items);
+    }
+
+    [Fact]
+    public void RemoveItem_NullItem_DoesNothing()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+
+        _vm.RemoveItem(null);
+
+        Assert.Single(_vm.Items);
+    }
+
+    [Fact]
+    public void RemoveItem_SetsDirtyFlag()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.CurrentPlaylist.IsDirty = false;
+
+        _vm.RemoveItem(_vm.Items[0]);
+
+        Assert.True(_vm.CurrentPlaylist.IsDirty);
+    }
+
+    [Fact]
+    public void RemoveItem_TriggersAutoSave()
+    {
+        var savePath = Path.Combine(_tempDir, "autosave.vidpl");
+        _vm.CurrentPlaylist.FilePath = savePath;
+        _settingsMock.Setup(s => s.Get("autoSave", false)).Returns(true);
+
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+
+        _vm.RemoveItem(_vm.Items[0]);
+
+        Assert.True(File.Exists(savePath));
+    }
+
+    // ── RemoveItemCommand ──
+
+    [Fact]
+    public void RemoveItemCommand_RemovesSelectedItem()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+
+        var itemA = _vm.Items[0];
+        _vm.RemoveItemCommand.Execute(itemA);
+
+        Assert.Single(_vm.Items);
+        Assert.Equal("b.mp4", _vm.Items[0].FileName);
+    }
+
+    // ── MoveItem ──
+
+    [Fact]
+    public void MoveItem_MovesItemForward()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+        _vm.AddItem(@"C:\Videos\c.mp4");
+
+        _vm.MoveItem(0, 2);
+
+        Assert.Equal("b.mp4", _vm.Items[0].FileName);
+        Assert.Equal("c.mp4", _vm.Items[1].FileName);
+        Assert.Equal("a.mp4", _vm.Items[2].FileName);
+    }
+
+    [Fact]
+    public void MoveItem_MovesItemBackward()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+        _vm.AddItem(@"C:\Videos\c.mp4");
+
+        _vm.MoveItem(2, 0);
+
+        Assert.Equal("c.mp4", _vm.Items[0].FileName);
+        Assert.Equal("a.mp4", _vm.Items[1].FileName);
+        Assert.Equal("b.mp4", _vm.Items[2].FileName);
+    }
+
+    [Fact]
+    public void MoveItem_SameIndex_DoesNothing()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+        _vm.CurrentPlaylist.IsDirty = false;
+
+        _vm.MoveItem(0, 0);
+
+        Assert.Equal("a.mp4", _vm.Items[0].FileName);
+        Assert.Equal("b.mp4", _vm.Items[1].FileName);
+        Assert.False(_vm.CurrentPlaylist.IsDirty);
+    }
+
+    [Fact]
+    public void MoveItem_InvalidFromIndex_DoesNothing()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+
+        _vm.MoveItem(-1, 0);
+        _vm.MoveItem(5, 0);
+
+        Assert.Equal("a.mp4", _vm.Items[0].FileName);
+        Assert.Equal("b.mp4", _vm.Items[1].FileName);
+    }
+
+    [Fact]
+    public void MoveItem_InvalidToIndex_DoesNothing()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+
+        _vm.MoveItem(0, -1);
+        _vm.MoveItem(0, 5);
+
+        Assert.Equal("a.mp4", _vm.Items[0].FileName);
+        Assert.Equal("b.mp4", _vm.Items[1].FileName);
+    }
+
+    [Fact]
+    public void MoveItem_SetsDirtyFlag()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+        _vm.CurrentPlaylist.IsDirty = false;
+
+        _vm.MoveItem(0, 1);
+
+        Assert.True(_vm.CurrentPlaylist.IsDirty);
+    }
+
+    [Fact]
+    public void MoveItem_TriggersAutoSave()
+    {
+        var savePath = Path.Combine(_tempDir, "autosave.vidpl");
+        _vm.CurrentPlaylist.FilePath = savePath;
+        _settingsMock.Setup(s => s.Get("autoSave", false)).Returns(true);
+
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+
+        _vm.MoveItem(0, 1);
+
+        Assert.True(File.Exists(savePath));
+    }
+
+    // ── MoveUpCommand ──
+
+    [Fact]
+    public void MoveUpCommand_MovesItemUp()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+        _vm.AddItem(@"C:\Videos\c.mp4");
+
+        _vm.MoveUpCommand.Execute(_vm.Items[1]);
+
+        Assert.Equal("b.mp4", _vm.Items[0].FileName);
+        Assert.Equal("a.mp4", _vm.Items[1].FileName);
+        Assert.Equal("c.mp4", _vm.Items[2].FileName);
+    }
+
+    [Fact]
+    public void MoveUpCommand_FirstItem_DoesNothing()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+
+        _vm.MoveUpCommand.Execute(_vm.Items[0]);
+
+        Assert.Equal("a.mp4", _vm.Items[0].FileName);
+        Assert.Equal("b.mp4", _vm.Items[1].FileName);
+    }
+
+    // ── MoveDownCommand ──
+
+    [Fact]
+    public void MoveDownCommand_MovesItemDown()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+        _vm.AddItem(@"C:\Videos\c.mp4");
+
+        _vm.MoveDownCommand.Execute(_vm.Items[1]);
+
+        Assert.Equal("a.mp4", _vm.Items[0].FileName);
+        Assert.Equal("c.mp4", _vm.Items[1].FileName);
+        Assert.Equal("b.mp4", _vm.Items[2].FileName);
+    }
+
+    [Fact]
+    public void MoveDownCommand_LastItem_DoesNothing()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+
+        _vm.MoveDownCommand.Execute(_vm.Items[1]);
+
+        Assert.Equal("a.mp4", _vm.Items[0].FileName);
+        Assert.Equal("b.mp4", _vm.Items[1].FileName);
+    }
+
+    // ── MoveToTopCommand ──
+
+    [Fact]
+    public void MoveToTopCommand_MovesItemToTop()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+        _vm.AddItem(@"C:\Videos\c.mp4");
+
+        _vm.MoveToTopCommand.Execute(_vm.Items[2]);
+
+        Assert.Equal("c.mp4", _vm.Items[0].FileName);
+        Assert.Equal("a.mp4", _vm.Items[1].FileName);
+        Assert.Equal("b.mp4", _vm.Items[2].FileName);
+    }
+
+    [Fact]
+    public void MoveToTopCommand_AlreadyAtTop_DoesNothing()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+        _vm.CurrentPlaylist.IsDirty = false;
+
+        _vm.MoveToTopCommand.Execute(_vm.Items[0]);
+
+        Assert.Equal("a.mp4", _vm.Items[0].FileName);
+        Assert.False(_vm.CurrentPlaylist.IsDirty);
+    }
+
+    // ── MoveToBottomCommand ──
+
+    [Fact]
+    public void MoveToBottomCommand_MovesItemToBottom()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+        _vm.AddItem(@"C:\Videos\c.mp4");
+
+        _vm.MoveToBottomCommand.Execute(_vm.Items[0]);
+
+        Assert.Equal("b.mp4", _vm.Items[0].FileName);
+        Assert.Equal("c.mp4", _vm.Items[1].FileName);
+        Assert.Equal("a.mp4", _vm.Items[2].FileName);
+    }
+
+    [Fact]
+    public void MoveToBottomCommand_AlreadyAtBottom_DoesNothing()
+    {
+        _vm.AddItem(@"C:\Videos\a.mp4");
+        _vm.AddItem(@"C:\Videos\b.mp4");
+        _vm.CurrentPlaylist.IsDirty = false;
+
+        _vm.MoveToBottomCommand.Execute(_vm.Items[1]);
+
+        Assert.Equal("b.mp4", _vm.Items[1].FileName);
+        Assert.False(_vm.CurrentPlaylist.IsDirty);
+    }
 }
