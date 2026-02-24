@@ -17,10 +17,30 @@ public sealed class ToastService
     private DispatcherTimer? _hideTimer;
 
     /// <summary>
-    /// Shows a toast notification overlaid on the Vido main window.
+    /// Shows an info toast (blue accent background).
     /// Auto-dismisses after 3 seconds with a fade animation.
     /// </summary>
     public void Show(string message, string? boldSuffix = null)
+    {
+        ShowInternal(message, boldSuffix,
+            background: Color.FromRgb(0x00, 0x7A, 0xCC),   // #007ACC
+            border: Color.FromRgb(0x00, 0x5A, 0x9E),
+            icon: "\uE946"); // info icon
+    }
+
+    /// <summary>
+    /// Shows an error toast (red background matching Vido's close button).
+    /// Auto-dismisses after 3 seconds with a fade animation.
+    /// </summary>
+    public void ShowError(string message, string? boldSuffix = null)
+    {
+        ShowInternal(message, boldSuffix,
+            background: Color.FromRgb(0xC4, 0x2B, 0x1C),   // #C42B1C
+            border: Color.FromRgb(0x9E, 0x22, 0x16),
+            icon: "\uEA39"); // error/warning icon
+    }
+
+    private void ShowInternal(string message, string? boldSuffix, Color background, Color border, string icon)
     {
         var app = Application.Current;
         if (app is null) return;
@@ -34,10 +54,10 @@ public sealed class ToastService
             // Remove any existing toast
             RemoveCurrentToast(rootGrid);
 
-            // Notification icon (Segoe MDL2 Assets: info icon &#xE946;)
-            var icon = new TextBlock
+            // Notification icon
+            var iconBlock = new TextBlock
             {
-                Text = "\uE946",
+                Text = icon,
                 FontFamily = new FontFamily("Segoe MDL2 Assets"),
                 FontSize = 14,
                 Foreground = Brushes.White,
@@ -65,15 +85,14 @@ public sealed class ToastService
             var contentPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Children = { icon, textBlock }
+                Children = { iconBlock, textBlock }
             };
 
-            // Accent-colored notification container
-            var accentBlue = Color.FromRgb(0x00, 0x7A, 0xCC); // #007ACC
+            // Notification container
             var toast = new Border
             {
-                Background = new SolidColorBrush(accentBlue),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x00, 0x5A, 0x9E)),
+                Background = new SolidColorBrush(background),
+                BorderBrush = new SolidColorBrush(border),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(12, 8, 14, 8),

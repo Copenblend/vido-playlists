@@ -735,4 +735,154 @@ public class PlaylistViewModelTests : IDisposable
 
         Assert.DoesNotContain(stalePath, _vm.RecentPlaylists);
     }
+
+    // ── HandleFileDrop — unsupported files ──
+
+    [Fact]
+    public void HandleFileDrop_IgnoresUnsupportedFiles()
+    {
+        var txtFile = Path.Combine(_tempDir, "readme.txt");
+        File.WriteAllText(txtFile, "fake");
+
+        _vm.HandleFileDrop([txtFile]);
+
+        Assert.Empty(_vm.Items);
+    }
+
+    [Fact]
+    public void HandleFileDrop_MixedFiles_AddsOnlyVideoFiles()
+    {
+        var mp4File = Path.Combine(_tempDir, "video.mp4");
+        var txtFile = Path.Combine(_tempDir, "readme.txt");
+        File.WriteAllText(mp4File, "fake");
+        File.WriteAllText(txtFile, "fake");
+
+        _vm.HandleFileDrop([mp4File, txtFile]);
+
+        Assert.Single(_vm.Items);
+        Assert.Equal("video.mp4", _vm.Items[0].FileName);
+    }
+
+    [Fact]
+    public void HandleFileDrop_FolderWithMixedFiles_AddsOnlyVideoFiles()
+    {
+        File.WriteAllText(Path.Combine(_tempDir, "video.mkv"), "fake");
+        File.WriteAllText(Path.Combine(_tempDir, "script.funscript"), "fake");
+        File.WriteAllText(Path.Combine(_tempDir, "notes.txt"), "fake");
+
+        _vm.HandleFileDrop([_tempDir]);
+
+        Assert.Single(_vm.Items);
+        Assert.Equal("video.mkv", _vm.Items[0].FileName);
+    }
+
+    // ── HandleFileDrop — .vidpl playlist files ──
+
+    [Fact]
+    public async Task HandleFileDrop_VidplFile_OpensPlaylist()
+    {
+        // Create a playlist file
+        var playlistPath = Path.Combine(_tempDir, "My Playlist.vidpl");
+        var playlist = new Models.Playlist("Test");
+        playlist.Items.Add(new Models.PlaylistItem(@"C:\Videos\video1.mp4"));
+        await _fileService.SaveAsync(playlist, playlistPath);
+
+        _vm.HandleFileDrop([playlistPath]);
+
+        // Allow async load to complete
+        await Task.Delay(100);
+
+        Assert.Equal("My Playlist", _vm.PlaylistName);
+        Assert.Single(_vm.Items);
+    }
+
+    [Fact]
+    public async Task HandleFileDrop_VidplFile_PromptsSaveWhenDirty()
+    {
+        // Make playlist dirty
+        _vm.AddItem(@"C:\Videos\existing.mp4");
+
+        // Create a playlist file to drop
+        var playlistPath = Path.Combine(_tempDir, "New.vidpl");
+        var playlist = new Models.Playlist("New");
+        await _fileService.SaveAsync(playlist, playlistPath);
+
+        // User cancels save prompt — drop should be cancelled
+        _dialogMock.Setup(d => d.ShowConfirmationDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns((bool?)null);
+
+        _vm.HandleFileDrop([playlistPath]);
+
+        // Original items should remain
+        Assert.Single(_vm.Items);
+        Assert.Equal("Untitled Playlist", _vm.PlaylistName);
+    }
+
+    // ── Auto-Save (vp-007) ──
+
+    [Fact]
+    public async Task AutoSaveIfEnabled_SavesWhenPathExists()
+    {
+        var savePath = Path.Combine(_tempDir, "auto.vidpl");
+        _vm.CurrentPlaylist.FilePath = savePath;
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+
+        // Enable auto-save
+        _settingsMock.Setup(s => s.Get("autoSave", false)).Returns(true);
+
+        _vm.AutoSaveIfEnabled();
+
+        // Allow async save to complete
+        await Task.Delay(100);
+
+        Assert.True(File.Exists(savePath));
+    }
+
+    [Fact]
+    public void AutoSaveIfEnabled_PromptsDialogWhenNoPath()
+    {
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+
+        // Enable auto-save
+        _settingsMock.Setup(s => s.Get("autoSave", false)).Returns(true);
+
+        // Dialog cancelled — should not crash
+        _dialogMock.Setup(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns((string?)null);
+
+        _vm.AutoSaveIfEnabled();
+
+        _dialogMock.Verify(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public void AutoSaveIfEnabled_DoesNothingWhenDisabled()
+    {
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+
+        // Auto-save disabled (default)
+        _settingsMock.Setup(s => s.Get("autoSave", false)).Returns(false);
+
+        _vm.AutoSaveIfEnabled();
+
+        _dialogMock.Verify(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void AddFromFileNode_TriggersAutoSave()
+    {
+        var savePath = Path.Combine(_tempDir, "autosave.vidpl");
+        _vm.CurrentPlaylist.FilePath = savePath;
+
+        // Enable auto-save
+        _settingsMock.Setup(s => s.Get("autoSave", false)).Returns(true);
+
+        var filePath = Path.Combine(_tempDir, "video.mp4");
+        File.WriteAllText(filePath, "fake");
+
+        _vm.AddFromFileNode(filePath, isDirectory: false);
+
+        // File should be saved (auto-save triggered)
+        Assert.True(File.Exists(savePath));
+    }
 }
