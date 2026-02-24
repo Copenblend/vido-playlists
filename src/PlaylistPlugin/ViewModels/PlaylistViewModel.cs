@@ -36,6 +36,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     private const string PlaylistFilter = "Vido Playlist (*.vidpl)|*.vidpl";
     private const string RecentPlaylistsKey = "recentPlaylists";
     private const string LastPlaylistPathKey = "lastPlaylistPath";
+    private const string AutoSaveKey = "autoSave";
     private const int MaxRecentPlaylists = 10;
 
     /// <summary>
@@ -286,6 +287,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         }
 
         ShowToast("Added to ", _playlistName);
+        AutoSaveIfEnabled();
     }
 
     /// <summary>
@@ -297,14 +299,37 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// Shows an error toast (red) on the Vido main window.
+    /// </summary>
+    public void ShowErrorToast(string message, string? boldSuffix = null)
+    {
+        _toastService?.ShowError(message, boldSuffix);
+    }
+
+    /// <summary>
     /// Handles dropped files/folders from Windows Explorer.
     /// For folders, recursively enumerates all files within.
+    /// Supports .vidpl playlist files (opens them) and video files (adds to playlist).
+    /// Shows error toast for unsupported file types.
     /// </summary>
     public void HandleFileDrop(string[] droppedPaths)
     {
         ArgumentNullException.ThrowIfNull(droppedPaths);
 
+        // Check for .vidpl files first — open the first one found
+        var vidplFile = droppedPaths.FirstOrDefault(p =>
+            string.Equals(Path.GetExtension(p), ".vidpl", StringComparison.OrdinalIgnoreCase)
+            && File.Exists(p));
+
+        if (vidplFile is not null)
+        {
+            if (!PromptSaveDirtyPlaylist()) return;
+            _ = LoadPlaylistFromPathAsync(vidplFile);
+            return;
+        }
+
         var filePaths = new List<string>();
+        var hasUnsupported = false;
 
         foreach (var path in droppedPaths)
         {
@@ -314,7 +339,12 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
                 try
                 {
                     var files = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories);
-                    filePaths.AddRange(files);
+                    foreach (var file in files)
+                    {
+                        if (IsVideoFile(file))
+                            filePaths.Add(file);
+                        // Non-video files in folders are silently skipped
+                    }
                 }
                 catch (UnauthorizedAccessException)
                 {
@@ -323,11 +353,27 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
             }
             else if (File.Exists(path))
             {
-                filePaths.Add(path);
+                if (IsVideoFile(path))
+                    filePaths.Add(path);
+                else
+                    hasUnsupported = true;
             }
         }
 
-        AddItems(filePaths);
+        if (filePaths.Count > 0)
+        {
+            AddItems(filePaths);
+            AutoSaveIfEnabled();
+        }
+
+        if (hasUnsupported && filePaths.Count == 0)
+        {
+            ShowErrorToast("Unsupported file type");
+        }
+        else if (hasUnsupported)
+        {
+            ShowErrorToast("Some files were skipped (unsupported)");
+        }
     }
 
     /// <summary>
@@ -337,6 +383,18 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     {
         _videoLoadedSubscription?.Dispose();
         _videoLoadedSubscription = null;
+    }
+
+    /// <summary>
+    /// If auto-save is enabled, saves the playlist automatically.
+    /// Prompts for a save location if the playlist has never been saved.
+    /// </summary>
+    internal void AutoSaveIfEnabled()
+    {
+        var autoSave = _settings?.Get(AutoSaveKey, false) ?? false;
+        if (!autoSave) return;
+
+        _ = SaveCurrentPlaylistAsync(saveAs: false);
     }
 
     // ── Private Helpers ──

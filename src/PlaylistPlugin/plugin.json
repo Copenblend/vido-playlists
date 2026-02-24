@@ -35,6 +35,16 @@
         "position": "left",
         "order": 100
       }
+    ],
+    "settings": [
+      {
+        "id": "autoSave",
+        "type": "boolean",
+        "default": false,
+        "title": "Automatically Save Playlists",
+        "description": "When enabled, any change to a playlist is automatically saved. If the playlist has never been saved, you will be prompted to choose a save location.",
+        "section": "General"
+      }
     ]
   }
 }
