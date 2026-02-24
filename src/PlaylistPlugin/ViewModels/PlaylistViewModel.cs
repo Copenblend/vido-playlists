@@ -164,6 +164,33 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// Adds a file or folder contents to the playlist from a file explorer context menu action.
+    /// For directories, recursively enumerates and adds all files within.
+    /// Skips duplicates.
+    /// </summary>
+    public void AddFromFileNode(string fullPath, bool isDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fullPath);
+
+        if (isDirectory)
+        {
+            try
+            {
+                var files = Directory.EnumerateFiles(fullPath, "*", SearchOption.AllDirectories);
+                AddItems(files);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Skip folders we can't access
+            }
+        }
+        else
+        {
+            AddItem(fullPath);
+        }
+    }
+
+    /// <summary>
     /// Handles dropped files/folders from Windows Explorer.
     /// For folders, recursively enumerates all files within.
     /// </summary>
@@ -214,21 +241,12 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         CurrentItem = null;
     }
 
-    private async void ExecutePlayItem(PlaylistItemViewModel? item)
+    private void ExecutePlayItem(PlaylistItemViewModel? item)
     {
         if (item == null || !item.FileExists) return;
 
         CurrentItem = item;
-
-        try
-        {
-            await _videoEngine.LoadAsync(item.FilePath);
-            _videoEngine.Play();
-        }
-        catch
-        {
-            // Playback failures are handled by the engine itself
-        }
+        _eventBus.Publish(new PlayFileRequestedEvent { FilePath = item.FilePath });
     }
 
     private void OnVideoLoaded(VideoLoadedEvent e)

@@ -199,7 +199,7 @@ public class PlaylistViewModelTests : IDisposable
     // ── PlayItemCommand ──
 
     [Fact]
-    public void PlayItemCommand_CallsEngineLoadAsyncAndPlay()
+    public void PlayItemCommand_PublishesPlayFileRequestedEvent()
     {
         // Create a real temp file so FileExists returns true
         var filePath = Path.Combine(_tempDir, "test.mp4");
@@ -208,15 +208,10 @@ public class PlaylistViewModelTests : IDisposable
         _vm.AddItem(filePath);
         var item = _vm.Items[0];
 
-        _engineMock.Setup(e => e.LoadAsync(filePath)).Returns(Task.CompletedTask);
-
         _vm.PlayItemCommand.Execute(item);
 
-        // Allow async work to complete
-        Thread.Sleep(100);
-
-        _engineMock.Verify(e => e.LoadAsync(filePath), Times.Once);
-        _engineMock.Verify(e => e.Play(), Times.Once);
+        _eventBusMock.Verify(e => e.Publish(It.Is<PlayFileRequestedEvent>(
+            evt => evt.FilePath == filePath)), Times.Once);
     }
 
     [Fact]
@@ -227,7 +222,7 @@ public class PlaylistViewModelTests : IDisposable
 
         _vm.PlayItemCommand.Execute(item);
 
-        _engineMock.Verify(e => e.LoadAsync(It.IsAny<string>()), Times.Never);
+        _eventBusMock.Verify(e => e.Publish(It.IsAny<PlayFileRequestedEvent>()), Times.Never);
     }
 
     // ── VideoLoadedEvent tracking ──
@@ -315,6 +310,67 @@ public class PlaylistViewModelTests : IDisposable
         _vm.AddItem(@"C:\Videos\video1.mp4");
 
         Assert.Contains(true, hasItemsValues);
+    }
+
+    // ── AddFromFileNode (Context Menu) ──
+
+    [Fact]
+    public void AddFromFileNode_File_AddsToPlaylist()
+    {
+        var filePath = Path.Combine(_tempDir, "video.mp4");
+        File.WriteAllText(filePath, "fake");
+
+        _vm.AddFromFileNode(filePath, isDirectory: false);
+
+        Assert.Single(_vm.Items);
+        Assert.Equal("video.mp4", _vm.Items[0].FileName);
+    }
+
+    [Fact]
+    public void AddFromFileNode_Directory_RecursivelyAddsAllFiles()
+    {
+        var subDir = Path.Combine(_tempDir, "sub");
+        Directory.CreateDirectory(subDir);
+        File.WriteAllText(Path.Combine(_tempDir, "root.mp4"), "fake");
+        File.WriteAllText(Path.Combine(subDir, "nested.mp4"), "fake");
+
+        _vm.AddFromFileNode(_tempDir, isDirectory: true);
+
+        Assert.Equal(2, _vm.Items.Count);
+    }
+
+    [Fact]
+    public void AddFromFileNode_File_SkipsDuplicates()
+    {
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+
+        _vm.AddFromFileNode(@"C:\Videos\video1.mp4", isDirectory: false);
+
+        Assert.Single(_vm.Items);
+    }
+
+    [Fact]
+    public void AddFromFileNode_File_SetsDirtyFlag()
+    {
+        var filePath = Path.Combine(_tempDir, "video.mp4");
+        File.WriteAllText(filePath, "fake");
+        _vm.CurrentPlaylist.IsDirty = false;
+
+        _vm.AddFromFileNode(filePath, isDirectory: false);
+
+        Assert.True(_vm.CurrentPlaylist.IsDirty);
+    }
+
+    [Fact]
+    public void AddFromFileNode_Directory_SkipsDuplicatesAcrossExisting()
+    {
+        var filePath = Path.Combine(_tempDir, "video.mp4");
+        File.WriteAllText(filePath, "fake");
+        _vm.AddItem(filePath);
+
+        _vm.AddFromFileNode(_tempDir, isDirectory: true);
+
+        Assert.Single(_vm.Items);
     }
 
     // ── Dispose ──

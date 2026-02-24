@@ -19,6 +19,14 @@
         "icon": "Assets/Icons/sidebar-icon.png",
         "order": 100
       }
+    ],
+    "contextMenu": [
+      {
+        "id": "add-to-playlist",
+        "label": "Add to Playlist",
+        "fileExtensions": [],
+        "order": 200
+      }
     ]
   }
 }

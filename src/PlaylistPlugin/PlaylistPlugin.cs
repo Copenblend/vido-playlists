@@ -7,7 +7,7 @@ namespace PlaylistPlugin;
 
 /// <summary>
 /// Playlists plugin entry point. Implements the Vido plugin lifecycle.
-/// Creates the playlist ViewModel and registers the sidebar panel.
+/// Creates the playlist ViewModel and registers the sidebar panel and context menu.
 /// </summary>
 public class PlaylistPlugin : IVidoPlugin
 {
@@ -24,6 +24,12 @@ public class PlaylistPlugin : IVidoPlugin
         // Register the playlist sidebar panel with Vido
         context.RegisterSidebarPanel("playlist-sidebar",
             () => new PlaylistSidebarView { DataContext = _viewModel });
+
+        // Register "Add to Playlist" context menu item in the file explorer
+        context.RegisterContextMenuHandler("add-to-playlist", node =>
+        {
+            _viewModel.AddFromFileNode(node.FullPath, node.IsDirectory);
+        });
 
         _context.Logger.Info("Playlists plugin activated", "PlaylistPlugin");
     }
