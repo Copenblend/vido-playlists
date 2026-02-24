@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>PlaylistPlugin</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlaylistPlugin.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Vido.Core" Version="$(VidoCoreVersion)" />
+  </ItemGroup>
+</Project>

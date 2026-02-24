@@ -1,0 +1,16 @@
+{
+  "id": "com.vido.playlists",
+  "name": "playlists",
+  "displayName": "Playlists",
+  "version": "1.0.0",
+  "description": "Playlist creation, management, and playback for Vido — create playlists, drag-and-drop files, shuffle, and control playback order.",
+  "author": "Vido",
+  "license": "MIT",
+  "entryPoint": "PlaylistPlugin.dll",
+  "pluginClass": "PlaylistPlugin.PlaylistPlugin",
+  "minVidoVersion": "0.8.0",
+  "tags": ["playlist", "queue", "playback"],
+  "icon": "Assets/Icons/sidebar-icon.png",
+  "contributes": {
+  }
+}
