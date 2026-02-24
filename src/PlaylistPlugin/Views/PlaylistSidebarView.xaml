@@ -19,7 +19,8 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid AllowDrop="True"
+    <Grid Background="Transparent"
+          AllowDrop="True"
           DragEnter="OnDragEnter"
           DragOver="OnDragOver"
           DragLeave="OnDragLeave"
@@ -33,13 +34,33 @@
 
         <!-- ═══ Header ═══ -->
         <StackPanel Grid.Row="0" Margin="12,8,12,0">
-            <TextBlock Text="PLAYLIST"
-                       Style="{StaticResource SectionLabelStyle}" />
+            <TextBlock Text="{Binding PlaylistName}"
+                       Style="{StaticResource SectionLabelStyle}"
+                       TextTrimming="CharacterEllipsis" />
             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                 <Button Content="New"
                         Style="{StaticResource PlaylistButtonStyle}"
                         Command="{Binding NewPlaylistCommand}"
+                        ToolTip="New Playlist"
                         Margin="0,0,4,0" />
+                <Button Content="Open"
+                        Style="{StaticResource PlaylistButtonStyle}"
+                        Command="{Binding OpenPlaylistCommand}"
+                        ToolTip="Open Playlist"
+                        Margin="0,0,4,0" />
+                <Button Content="Save"
+                        Style="{StaticResource PlaylistButtonStyle}"
+                        Command="{Binding SavePlaylistCommand}"
+                        ToolTip="Save Playlist"
+                        Margin="0,0,4,0" />
+
+                <!-- Recent playlists dropdown -->
+                <Button x:Name="RecentButton"
+                        Content="▾"
+                        Style="{StaticResource PlaylistButtonStyle}"
+                        ToolTip="Recent Playlists"
+                        Click="OnRecentButtonClick"
+                        MinWidth="24" />
             </StackPanel>
         </StackPanel>
 
@@ -142,6 +163,8 @@
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center" />
             </Border>
+
+
         </Grid>
     </Grid>
 </UserControl>

@@ -7,7 +7,8 @@ namespace PlaylistPlugin;
 
 /// <summary>
 /// Playlists plugin entry point. Implements the Vido plugin lifecycle.
-/// Creates the playlist ViewModel and registers the sidebar panel and context menu.
+/// Creates the playlist ViewModel and registers the sidebar panel, context menu,
+/// and status bar item.
 /// </summary>
 public class PlaylistPlugin : IVidoPlugin
 {
@@ -19,11 +20,24 @@ public class PlaylistPlugin : IVidoPlugin
         _context = context;
 
         var fileService = new PlaylistFileService();
-        _viewModel = new PlaylistViewModel(fileService, context.VideoEngine, context.Events);
+        var dialogService = new DialogService();
+        var toastService = new ToastService();
+
+        _viewModel = new PlaylistViewModel(
+            fileService,
+            context.VideoEngine,
+            context.Events,
+            dialogService,
+            context.Settings,
+            text => context.UpdateStatusBarItem("playlist-status", text),
+            toastService);
 
         // Register the playlist sidebar panel with Vido
         context.RegisterSidebarPanel("playlist-sidebar",
             () => new PlaylistSidebarView { DataContext = _viewModel });
+
+        // Register status bar item showing playlist info
+        context.RegisterStatusBarItem("playlist-status", () => _viewModel.StatusText);
 
         // Register "Add to Playlist" context menu item in the file explorer
         context.RegisterContextMenuHandler("add-to-playlist", node =>
