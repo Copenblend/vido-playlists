@@ -24,8 +24,16 @@
       {
         "id": "add-to-playlist",
         "label": "Add to Playlist",
-        "fileExtensions": [],
+        "fileExtensions": [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm"],
         "order": 200
+      }
+    ],
+    "statusBar": [
+      {
+        "id": "playlist-status",
+        "name": "Playlist Status",
+        "position": "left",
+        "order": 100
       }
     ]
   }

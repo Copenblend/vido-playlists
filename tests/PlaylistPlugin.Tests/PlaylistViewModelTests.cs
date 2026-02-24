@@ -4,6 +4,7 @@ using PlaylistPlugin.Services;
 using PlaylistPlugin.ViewModels;
 using Vido.Core.Events;
 using Vido.Core.Playback;
+using Vido.Core.Plugin;
 using Xunit;
 
 namespace PlaylistPlugin.Tests;
@@ -12,9 +13,12 @@ public class PlaylistViewModelTests : IDisposable
 {
     private readonly Mock<IVideoEngine> _engineMock;
     private readonly Mock<IEventBus> _eventBusMock;
+    private readonly Mock<IDialogService> _dialogMock;
+    private readonly Mock<IPluginSettingsStore> _settingsMock;
     private readonly PlaylistFileService _fileService;
     private readonly PlaylistViewModel _vm;
     private readonly string _tempDir;
+    private readonly List<string> _statusBarUpdates;
 
     // Capture the VideoLoadedEvent handler registered via Subscribe
     private Action<VideoLoadedEvent>? _videoLoadedHandler;
@@ -23,6 +27,9 @@ public class PlaylistViewModelTests : IDisposable
     {
         _engineMock = new Mock<IVideoEngine>();
         _eventBusMock = new Mock<IEventBus>();
+        _dialogMock = new Mock<IDialogService>();
+        _settingsMock = new Mock<IPluginSettingsStore>();
+        _statusBarUpdates = [];
 
         // Capture the subscription handler so tests can invoke it
         _eventBusMock
@@ -30,8 +37,17 @@ public class PlaylistViewModelTests : IDisposable
             .Callback<Action<VideoLoadedEvent>>(handler => _videoLoadedHandler = handler)
             .Returns(Mock.Of<IDisposable>());
 
+        // Return empty for recent playlists by default
+        _settingsMock.Setup(s => s.Get("recentPlaylists", string.Empty)).Returns(string.Empty);
+
         _fileService = new PlaylistFileService();
-        _vm = new PlaylistViewModel(_fileService, _engineMock.Object, _eventBusMock.Object);
+        _vm = new PlaylistViewModel(
+            _fileService,
+            _engineMock.Object,
+            _eventBusMock.Object,
+            _dialogMock.Object,
+            _settingsMock.Object,
+            text => _statusBarUpdates.Add(text));
 
         _tempDir = Path.Combine(Path.GetTempPath(), "PlaylistVmTests_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
@@ -58,11 +74,13 @@ public class PlaylistViewModelTests : IDisposable
     public void Constructor_ThrowsOnNullArguments()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new PlaylistViewModel(null!, _engineMock.Object, _eventBusMock.Object));
+            new PlaylistViewModel(null!, _engineMock.Object, _eventBusMock.Object, _dialogMock.Object));
         Assert.Throws<ArgumentNullException>(() =>
-            new PlaylistViewModel(_fileService, null!, _eventBusMock.Object));
+            new PlaylistViewModel(_fileService, null!, _eventBusMock.Object, _dialogMock.Object));
         Assert.Throws<ArgumentNullException>(() =>
-            new PlaylistViewModel(_fileService, _engineMock.Object, null!));
+            new PlaylistViewModel(_fileService, _engineMock.Object, null!, _dialogMock.Object));
+        Assert.Throws<ArgumentNullException>(() =>
+            new PlaylistViewModel(_fileService, _engineMock.Object, _eventBusMock.Object, null!));
     }
 
     // ── AddItem ──
@@ -93,6 +111,47 @@ public class PlaylistViewModelTests : IDisposable
         Assert.ThrowsAny<ArgumentException>(() => _vm.AddItem(null!));
         Assert.ThrowsAny<ArgumentException>(() => _vm.AddItem(""));
         Assert.ThrowsAny<ArgumentException>(() => _vm.AddItem("   "));
+    }
+
+    [Fact]
+    public void AddItem_IgnoresNonVideoFiles()
+    {
+        _vm.AddItem(@"C:\Files\document.txt");
+        _vm.AddItem(@"C:\Files\image.png");
+        _vm.AddItem(@"C:\Files\script.funscript");
+
+        Assert.Empty(_vm.Items);
+    }
+
+    [Theory]
+    [InlineData(".mp4")]
+    [InlineData(".avi")]
+    [InlineData(".mkv")]
+    [InlineData(".mov")]
+    [InlineData(".wmv")]
+    [InlineData(".flv")]
+    [InlineData(".webm")]
+    public void AddItem_AcceptsAllSupportedVideoExtensions(string ext)
+    {
+        _vm.AddItem($@"C:\Videos\video{ext}");
+
+        Assert.Single(_vm.Items);
+    }
+
+    [Fact]
+    public void IsVideoFile_ReturnsFalseForNonVideoExtensions()
+    {
+        Assert.False(PlaylistViewModel.IsVideoFile(@"C:\Files\doc.txt"));
+        Assert.False(PlaylistViewModel.IsVideoFile(@"C:\Files\pic.png"));
+        Assert.False(PlaylistViewModel.IsVideoFile(@"C:\Files\script.funscript"));
+        Assert.False(PlaylistViewModel.IsVideoFile(@"C:\Files\noext"));
+    }
+
+    [Fact]
+    public void IsVideoFile_IsCaseInsensitive()
+    {
+        Assert.True(PlaylistViewModel.IsVideoFile(@"C:\Videos\clip.MP4"));
+        Assert.True(PlaylistViewModel.IsVideoFile(@"C:\Videos\clip.Mkv"));
     }
 
     // ── AddItems ──
@@ -146,6 +205,20 @@ public class PlaylistViewModelTests : IDisposable
     }
 
     [Fact]
+    public void HandleFileDrop_SkipsNonVideoFiles()
+    {
+        File.WriteAllText(Path.Combine(_tempDir, "video.mp4"), "fake");
+        File.WriteAllText(Path.Combine(_tempDir, "readme.txt"), "fake");
+        File.WriteAllText(Path.Combine(_tempDir, "image.png"), "fake");
+        File.WriteAllText(Path.Combine(_tempDir, "script.funscript"), "fake");
+
+        _vm.HandleFileDrop([_tempDir]);
+
+        Assert.Single(_vm.Items);
+        Assert.Equal("video.mp4", _vm.Items[0].FileName);
+    }
+
+    [Fact]
     public void HandleFileDrop_IgnoresNonexistentPaths()
     {
         _vm.HandleFileDrop([@"C:\NonExistent\does_not_exist_12345.mp4"]);
@@ -161,6 +234,10 @@ public class PlaylistViewModelTests : IDisposable
         _vm.AddItem(@"C:\Videos\video1.mp4");
         _vm.AddItem(@"C:\Videos\video2.mp4");
         Assert.Equal(2, _vm.Items.Count);
+
+        // User chooses "No" (discard changes) when prompted
+        _dialogMock.Setup(d => d.ShowConfirmationDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(false);
 
         _vm.NewPlaylistCommand.Execute(null);
 
@@ -384,9 +461,278 @@ public class PlaylistViewModelTests : IDisposable
             .Setup(e => e.Subscribe(It.IsAny<Action<VideoLoadedEvent>>()))
             .Returns(subscription.Object);
 
-        var vm = new PlaylistViewModel(_fileService, _engineMock.Object, eventBus.Object);
+        var vm = new PlaylistViewModel(_fileService, _engineMock.Object, eventBus.Object, _dialogMock.Object);
         vm.Dispose();
 
         subscription.Verify(s => s.Dispose(), Times.Once);
+    }
+
+    // ── SavePlaylistCommand ──
+
+    [Fact]
+    public async Task SavePlaylistCommand_PromptsDialogWhenNoPath()
+    {
+        var savePath = Path.Combine(_tempDir, "saved.vidpl");
+        _dialogMock.Setup(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(savePath);
+
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+
+        var result = await _vm.SaveCurrentPlaylistAsync(saveAs: false);
+
+        Assert.True(result);
+        _dialogMock.Verify(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+        Assert.True(File.Exists(savePath));
+        Assert.False(_vm.CurrentPlaylist.IsDirty);
+    }
+
+    [Fact]
+    public async Task SavePlaylistCommand_SavesDirectlyWhenPathExists()
+    {
+        var savePath = Path.Combine(_tempDir, "existing.vidpl");
+        _vm.CurrentPlaylist.FilePath = savePath;
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+
+        var result = await _vm.SaveCurrentPlaylistAsync(saveAs: false);
+
+        Assert.True(result);
+        _dialogMock.Verify(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        Assert.True(File.Exists(savePath));
+    }
+
+    [Fact]
+    public async Task SavePlaylistAsCommand_AlwaysPromptsDialog()
+    {
+        var savePath = Path.Combine(_tempDir, "saveas.vidpl");
+        _vm.CurrentPlaylist.FilePath = Path.Combine(_tempDir, "existing.vidpl");
+
+        _dialogMock.Setup(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(savePath);
+
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+
+        var result = await _vm.SaveCurrentPlaylistAsync(saveAs: true);
+
+        Assert.True(result);
+        _dialogMock.Verify(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SavePlaylistCommand_ReturnsFalseWhenCancelled()
+    {
+        _dialogMock.Setup(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns((string?)null);
+
+        var result = await _vm.SaveCurrentPlaylistAsync(saveAs: false);
+
+        Assert.False(result);
+    }
+
+    // ── OpenPlaylistCommand ──
+
+    [Fact]
+    public async Task LoadPlaylistFromPath_LoadsPlaylistCorrectly()
+    {
+        // Create a playlist file
+        var playlistPath = Path.Combine(_tempDir, "My Videos.vidpl");
+        var playlist = new Models.Playlist("Test Playlist");
+        playlist.Items.Add(new Models.PlaylistItem(@"C:\Videos\video1.mp4"));
+        playlist.Items.Add(new Models.PlaylistItem(@"C:\Videos\video2.mp4"));
+        await _fileService.SaveAsync(playlist, playlistPath);
+
+        await _vm.LoadPlaylistFromPathAsync(playlistPath);
+
+        // Name derived from file name, not JSON content
+        Assert.Equal("My Videos", _vm.PlaylistName);
+        Assert.Equal(2, _vm.Items.Count);
+        Assert.Null(_vm.CurrentItem);
+    }
+
+    // ── Dirty State Prompts ──
+
+    [Fact]
+    public void PromptSaveDirtyPlaylist_ReturnsTrue_WhenNotDirty()
+    {
+        _vm.CurrentPlaylist.IsDirty = false;
+
+        var result = _vm.PromptSaveDirtyPlaylist();
+
+        Assert.True(result);
+        _dialogMock.Verify(d => d.ShowConfirmationDialog(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void PromptSaveDirtyPlaylist_ReturnsTrue_WhenUserChoosesNo()
+    {
+        _vm.AddItem(@"C:\Videos\video1.mp4"); // makes it dirty
+
+        _dialogMock.Setup(d => d.ShowConfirmationDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(false);
+
+        var result = _vm.PromptSaveDirtyPlaylist();
+
+        Assert.True(result); // No = discard and proceed
+    }
+
+    [Fact]
+    public void PromptSaveDirtyPlaylist_ReturnsFalse_WhenUserChoosesCancel()
+    {
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+
+        _dialogMock.Setup(d => d.ShowConfirmationDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns((bool?)null);
+
+        var result = _vm.PromptSaveDirtyPlaylist();
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void PromptSaveDirtyPlaylist_SavesAndReturnsTrue_WhenUserChoosesYes()
+    {
+        var savePath = Path.Combine(_tempDir, "prompted.vidpl");
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+
+        _dialogMock.Setup(d => d.ShowConfirmationDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(true);
+        _dialogMock.Setup(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(savePath);
+
+        var result = _vm.PromptSaveDirtyPlaylist();
+
+        Assert.True(result);
+        Assert.True(File.Exists(savePath));
+    }
+
+    // ── NewPlaylistCommand with dirty check ──
+
+    [Fact]
+    public void NewPlaylistCommand_PromptsSaveWhenDirty()
+    {
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+
+        // User cancels — the new playlist should NOT be created
+        _dialogMock.Setup(d => d.ShowConfirmationDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns((bool?)null);
+
+        _vm.NewPlaylistCommand.Execute(null);
+
+        // Items should still be present (new was cancelled)
+        Assert.Single(_vm.Items);
+    }
+
+    // ── Status Bar Text ──
+
+    [Fact]
+    public void StatusText_ShowsItemCountWhenNotPlaying()
+    {
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+        _vm.AddItem(@"C:\Videos\video2.mp4");
+
+        Assert.Contains("2 items", _vm.StatusText);
+        Assert.Contains("Untitled Playlist", _vm.StatusText);
+    }
+
+    [Fact]
+    public void StatusText_ShowsPlayingPosition()
+    {
+        var filePath = Path.Combine(_tempDir, "test.mp4");
+        File.WriteAllText(filePath, "fake");
+
+        _vm.AddItem(filePath);
+        _vm.AddItem(@"C:\Videos\video2.mp4");
+
+        // Simulate playing the first item
+        _vm.CurrentItem = _vm.Items[0];
+        _vm.UpdateStatusText();
+
+        Assert.Contains("Playing 1 of 2", _vm.StatusText);
+    }
+
+    [Fact]
+    public void StatusText_InvokesUpdateStatusBarCallback()
+    {
+        _statusBarUpdates.Clear();
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+
+        Assert.NotEmpty(_statusBarUpdates);
+    }
+
+    // ── Recent Playlists ──
+
+    [Fact]
+    public void AddRecentPlaylist_AddsToTop()
+    {
+        _vm.AddRecentPlaylist(@"C:\Playlists\a.vidpl");
+        _vm.AddRecentPlaylist(@"C:\Playlists\b.vidpl");
+
+        Assert.Equal(2, _vm.RecentPlaylists.Count);
+        Assert.Equal(@"C:\Playlists\b.vidpl", _vm.RecentPlaylists[0]);
+        Assert.Equal(@"C:\Playlists\a.vidpl", _vm.RecentPlaylists[1]);
+    }
+
+    [Fact]
+    public void AddRecentPlaylist_DeduplicatesCaseInsensitive()
+    {
+        _vm.AddRecentPlaylist(@"C:\Playlists\a.vidpl");
+        _vm.AddRecentPlaylist(@"C:\Playlists\b.vidpl");
+        _vm.AddRecentPlaylist(@"c:\playlists\A.VIDPL");
+
+        Assert.Equal(2, _vm.RecentPlaylists.Count);
+        Assert.Equal(@"c:\playlists\A.VIDPL", _vm.RecentPlaylists[0]);
+    }
+
+    [Fact]
+    public void AddRecentPlaylist_LimitsToMax10()
+    {
+        for (var i = 0; i < 15; i++)
+            _vm.AddRecentPlaylist($@"C:\Playlists\playlist{i}.vidpl");
+
+        Assert.Equal(10, _vm.RecentPlaylists.Count);
+    }
+
+    [Fact]
+    public void AddRecentPlaylist_PersistsToSettings()
+    {
+        _vm.AddRecentPlaylist(@"C:\Playlists\a.vidpl");
+
+        _settingsMock.Verify(s => s.Set("recentPlaylists", It.Is<string>(v => v.Contains(@"C:\Playlists\a.vidpl"))), Times.Once);
+    }
+
+    [Fact]
+    public async Task SavePlaylist_AddsToRecentPlaylists()
+    {
+        var savePath = Path.Combine(_tempDir, "recent.vidpl");
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+        _dialogMock.Setup(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(savePath);
+
+        await _vm.SaveCurrentPlaylistAsync(saveAs: false);
+
+        Assert.Contains(savePath, _vm.RecentPlaylists);
+    }
+
+    [Fact]
+    public async Task LoadPlaylist_AddsToRecentPlaylists()
+    {
+        var playlistPath = Path.Combine(_tempDir, "recent-load.vidpl");
+        var playlist = new Models.Playlist("Recent Test");
+        await _fileService.SaveAsync(playlist, playlistPath);
+
+        await _vm.LoadPlaylistFromPathAsync(playlistPath);
+
+        Assert.Contains(playlistPath, _vm.RecentPlaylists);
+    }
+
+    [Fact]
+    public void RecentPlaylists_RemovesStaleEntries()
+    {
+        var stalePath = @"C:\NonExistent\stale_playlist_12345.vidpl";
+        _vm.AddRecentPlaylist(stalePath);
+
+        // Simulate opening a stale recent entry
+        _vm.OpenRecentPlaylistCommand.Execute(stalePath);
+
+        Assert.DoesNotContain(stalePath, _vm.RecentPlaylists);
     }
 }
