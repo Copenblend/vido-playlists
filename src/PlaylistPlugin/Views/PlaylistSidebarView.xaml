@@ -101,6 +101,19 @@
                     </ControlTemplate>
                 </ListBox.Template>
 
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource PlaylistListBoxItemStyle}">
+                        <Setter Property="AllowDrop" Value="True" />
+                        <EventSetter Event="PreviewMouseRightButtonUp" Handler="OnItemPreviewMouseRightButtonUp" />
+                        <EventSetter Event="PreviewMouseLeftButtonDown" Handler="OnItemPreviewMouseLeftButtonDown" />
+                        <EventSetter Event="PreviewMouseMove" Handler="OnItemPreviewMouseMove" />
+                        <EventSetter Event="DragEnter" Handler="OnItemDragEnter" />
+                        <EventSetter Event="DragOver" Handler="OnItemDragOver" />
+                        <EventSetter Event="DragLeave" Handler="OnItemDragLeave" />
+                        <EventSetter Event="Drop" Handler="OnItemDrop" />
+                    </Style>
+                </ListBox.ItemContainerStyle>
+
                 <ListBox.ItemTemplate>
                     <DataTemplate DataType="{x:Type vm:PlaylistItemViewModel}">
                         <Grid Margin="0,1">

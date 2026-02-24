@@ -174,6 +174,31 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     /// </summary>
     public ICommand OpenRecentPlaylistCommand { get; }
 
+    /// <summary>
+    /// Command to remove an item from the playlist. Parameter: <see cref="PlaylistItemViewModel"/>.
+    /// </summary>
+    public ICommand RemoveItemCommand { get; }
+
+    /// <summary>
+    /// Command to move an item up one position. Parameter: <see cref="PlaylistItemViewModel"/>.
+    /// </summary>
+    public ICommand MoveUpCommand { get; }
+
+    /// <summary>
+    /// Command to move an item down one position. Parameter: <see cref="PlaylistItemViewModel"/>.
+    /// </summary>
+    public ICommand MoveDownCommand { get; }
+
+    /// <summary>
+    /// Command to move an item to the top of the list. Parameter: <see cref="PlaylistItemViewModel"/>.
+    /// </summary>
+    public ICommand MoveToTopCommand { get; }
+
+    /// <summary>
+    /// Command to move an item to the bottom of the list. Parameter: <see cref="PlaylistItemViewModel"/>.
+    /// </summary>
+    public ICommand MoveToBottomCommand { get; }
+
     public PlaylistViewModel(
         PlaylistFileService fileService,
         IVideoEngine videoEngine,
@@ -206,6 +231,11 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         SavePlaylistCommand = new RelayCommand(ExecuteSavePlaylist);
         SavePlaylistAsCommand = new RelayCommand(ExecuteSavePlaylistAs);
         OpenRecentPlaylistCommand = new RelayCommand<string>(ExecuteOpenRecentPlaylist);
+        RemoveItemCommand = new RelayCommand<PlaylistItemViewModel>(ExecuteRemoveItem);
+        MoveUpCommand = new RelayCommand<PlaylistItemViewModel>(ExecuteMoveUp);
+        MoveDownCommand = new RelayCommand<PlaylistItemViewModel>(ExecuteMoveDown);
+        MoveToTopCommand = new RelayCommand<PlaylistItemViewModel>(ExecuteMoveToTop);
+        MoveToBottomCommand = new RelayCommand<PlaylistItemViewModel>(ExecuteMoveToBottom);
 
         // Subscribe to video loaded events to track currently playing item
         _videoLoadedSubscription = _eventBus.Subscribe<VideoLoadedEvent>(OnVideoLoaded);
@@ -291,7 +321,36 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Shows a brief toast message on the Vido main window.
+    /// Removes an item from the playlist.
+    /// </summary>
+    public void RemoveItem(PlaylistItemViewModel? item)
+    {
+        if (item is null) return;
+
+        var model = _currentPlaylist.Items.FirstOrDefault(i =>
+            string.Equals(i.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
+
+        if (model is null) return;
+
+        if (ReferenceEquals(item, _currentItem))
+            CurrentItem = null;
+
+        _currentPlaylist.Items.Remove(model);
+        AutoSaveIfEnabled();
+    }
+
+    /// <summary>
+    /// Moves a playlist item from one index to another (for drag-and-drop reordering).
+    /// </summary>
+    public void MoveItem(int fromIndex, int toIndex)
+    {
+        if (fromIndex < 0 || fromIndex >= Items.Count) return;
+        if (toIndex < 0 || toIndex >= Items.Count) return;
+        if (fromIndex == toIndex) return;
+
+        _currentPlaylist.Items.Move(fromIndex, toIndex);
+        AutoSaveIfEnabled();
+    }
     /// </summary>
     public void ShowToast(string message, string? boldSuffix = null)
     {
@@ -398,6 +457,36 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     }
 
     // ── Private Helpers ──
+
+    private void ExecuteRemoveItem(PlaylistItemViewModel? item) => RemoveItem(item);
+
+    private void ExecuteMoveUp(PlaylistItemViewModel? item)
+    {
+        if (item is null) return;
+        var index = Items.IndexOf(item);
+        if (index > 0) MoveItem(index, index - 1);
+    }
+
+    private void ExecuteMoveDown(PlaylistItemViewModel? item)
+    {
+        if (item is null) return;
+        var index = Items.IndexOf(item);
+        if (index >= 0 && index < Items.Count - 1) MoveItem(index, index + 1);
+    }
+
+    private void ExecuteMoveToTop(PlaylistItemViewModel? item)
+    {
+        if (item is null) return;
+        var index = Items.IndexOf(item);
+        if (index > 0) MoveItem(index, 0);
+    }
+
+    private void ExecuteMoveToBottom(PlaylistItemViewModel? item)
+    {
+        if (item is null) return;
+        var index = Items.IndexOf(item);
+        if (index >= 0 && index < Items.Count - 1) MoveItem(index, Items.Count - 1);
+    }
 
     private void ExecuteNewPlaylist()
     {
@@ -659,6 +748,13 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
 
             case NotifyCollectionChangedAction.Reset:
                 Items.Clear();
+                break;
+
+            case NotifyCollectionChangedAction.Move:
+                if (e.OldStartingIndex >= 0 && e.NewStartingIndex >= 0)
+                {
+                    Items.Move(e.OldStartingIndex, e.NewStartingIndex);
+                }
                 break;
 
             default:
