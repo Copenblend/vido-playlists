@@ -158,16 +158,11 @@ public partial class PlaylistSidebarView : UserControl
 
         var itemStyle = CreateContextMenuItemStyle();
 
-        menu.Items.Add(CreateContextMenuItem("Remove from Playlist", vm.RemoveItemCommand, item, true, itemStyle));
-        menu.Items.Add(new Separator
-        {
-            Background = new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C)),
-            Margin = new Thickness(4, 2, 4, 2)
-        });
         menu.Items.Add(CreateContextMenuItem("Move to Top", vm.MoveToTopCommand, item, index > 0, itemStyle));
         menu.Items.Add(CreateContextMenuItem("Move Up", vm.MoveUpCommand, item, index > 0, itemStyle));
         menu.Items.Add(CreateContextMenuItem("Move Down", vm.MoveDownCommand, item, index < count - 1, itemStyle));
         menu.Items.Add(CreateContextMenuItem("Move to Bottom", vm.MoveToBottomCommand, item, index < count - 1, itemStyle));
+        menu.Items.Add(CreateContextMenuItem("Remove from Playlist", vm.RemoveItemCommand, item, true, itemStyle));
 
         menu.PlacementTarget = listBoxItem;
         menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;

@@ -14,6 +14,7 @@ public class PlaylistPlugin : IVidoPlugin
 {
     private IPluginContext? _context;
     private PlaylistViewModel? _viewModel;
+    private PlaylistProvider? _playlistProvider;
 
     public void Activate(IPluginContext context)
     {
@@ -22,6 +23,7 @@ public class PlaylistPlugin : IVidoPlugin
         var fileService = new PlaylistFileService();
         var dialogService = new DialogService();
         var toastService = new ToastService();
+        _playlistProvider = new PlaylistProvider();
 
         _viewModel = new PlaylistViewModel(
             fileService,
@@ -30,7 +32,8 @@ public class PlaylistPlugin : IVidoPlugin
             dialogService,
             context.Settings,
             text => context.UpdateStatusBarItem("playlist-status", text),
-            toastService);
+            toastService,
+            _playlistProvider);
 
         // Register the playlist sidebar panel with Vido
         context.RegisterSidebarPanel("playlist-sidebar",
@@ -45,13 +48,18 @@ public class PlaylistPlugin : IVidoPlugin
             _viewModel.AddFromFileNode(node.FullPath, node.IsDirectory);
         });
 
+        // Register the playlist provider for next/previous/auto-advance
+        context.RegisterPlaylistProvider(_playlistProvider);
+
         _context.Logger.Info("Playlists plugin activated", "PlaylistPlugin");
     }
 
     public void Deactivate()
     {
+        _context?.UnregisterPlaylistProvider();
         _viewModel?.Dispose();
         _viewModel = null;
+        _playlistProvider = null;
 
         _context?.Logger.Info("Playlists plugin deactivated", "PlaylistPlugin");
         _context = null;
