@@ -1404,4 +1404,45 @@ public class PlaylistViewModelTests : IDisposable
 
         Assert.Equal(TempPath("c.mp4"), prev);
     }
+
+    // ── Shuffle integration (provider-level, triggered externally) ──
+
+    [Fact]
+    public void AddItem_WhileShuffling_RebuildsShuffle()
+    {
+        CreateTempVideo("a.mp4");
+        CreateTempVideo("b.mp4");
+        CreateTempVideo("c.mp4");
+        _vm.AddItem(TempPath("a.mp4"));
+        _vm.AddItem(TempPath("b.mp4"));
+
+        _vm.PlayItemCommand.Execute(_vm.Items[0]);
+        _playlistProvider.EnableShuffle();
+
+        Assert.Equal(2, _playlistProvider.ShuffledIndices!.Count);
+
+        _vm.AddItem(TempPath("c.mp4"));
+
+        Assert.Equal(3, _playlistProvider.ShuffledIndices!.Count);
+    }
+
+    [Fact]
+    public void RemoveItem_WhileShuffling_RebuildsShuffle()
+    {
+        CreateTempVideo("a.mp4");
+        CreateTempVideo("b.mp4");
+        CreateTempVideo("c.mp4");
+        _vm.AddItem(TempPath("a.mp4"));
+        _vm.AddItem(TempPath("b.mp4"));
+        _vm.AddItem(TempPath("c.mp4"));
+
+        _vm.PlayItemCommand.Execute(_vm.Items[0]);
+        _playlistProvider.EnableShuffle();
+
+        Assert.Equal(3, _playlistProvider.ShuffledIndices!.Count);
+
+        _vm.RemoveItem(_vm.Items[2]);
+
+        Assert.Equal(2, _playlistProvider.ShuffledIndices!.Count);
+    }
 }
