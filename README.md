@@ -12,7 +12,7 @@ The Playlists plugin adds playlist creation, management, and playback support to
 - Auto-save option that persists changes as you make them
 - Recent playlists dropdown for quick access to your last 10 playlists
 - Status bar showing playlist progress (e.g. "Playing 3 of 12 — My Playlist")
-- Companion file support — funscripts and other non-video files are kept in the playlist alongside videos, making them discoverable by other plugins (e.g. OSR2+) during playback
+- Companion file support — other non-video files are kept in the playlist alongside videos, making them discoverable by other plugins during playback
 
 ## Installation
 
@@ -66,7 +66,7 @@ When you double-click a playlist item, the plugin registers itself as Vido's act
 - **Previous** (`PageUp` or transport button) goes to the previous video
 - **Media ended** automatically advances to the next video
 - Playback **loops** — after the last video, it wraps to the first (and vice versa for previous)
-- Non-video files (e.g. `.funscript`) are skipped during navigation but remain in the playlist for companion-file discovery
+- Non-video files are skipped during navigation but remain in the playlist for companion-file discovery
 
 If you load a video from outside the playlist (e.g. double-click in the file explorer), playlist mode deactivates and Vido reverts to its built-in next/previous behavior.
 
