@@ -786,6 +786,9 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
                 RebuildItems();
                 break;
         }
+
+        // Rebuild shuffle order when playlist items change
+        _playlistProvider?.RebuildShuffleOrder();
     }
 
     private void RebuildItems()

@@ -1,0 +1,41 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "PlaylistPlugin/1.0.0": {
+        "dependencies": {
+          "Vido.Core": "0.8.0"
+        },
+        "runtime": {
+          "PlaylistPlugin.dll": {}
+        }
+      },
+      "Vido.Core/0.8.0": {
+        "runtime": {
+          "lib/net8.0/Vido.Core.dll": {
+            "assemblyVersion": "0.8.0.0",
+            "fileVersion": "0.8.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "PlaylistPlugin/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Vido.Core/0.8.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-cOVrRrA3FJKspzWjlbvSMdjA1eYtaWbS/GrWUrWO7IWpwmDdCm9TZwG9UFpOEtBVjHUra5Z89qHKgdSI+P6kaw==",
+      "path": "vido.core/0.8.0",
+      "hashPath": "vido.core.0.8.0.nupkg.sha512"
+    }
+  }
+}
