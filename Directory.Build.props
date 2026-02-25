@@ -3,7 +3,7 @@
     <PluginVersion>1.0.0</PluginVersion>
   </PropertyGroup>
   <PropertyGroup>
-    <VidoCoreVersion>0.8.0</VidoCoreVersion>
+    <VidoCoreVersion>0.8.1</VidoCoreVersion>
   </PropertyGroup>
   <PropertyGroup>
     <MicrosoftNetTestSdkVersion>17.*</MicrosoftNetTestSdkVersion>
