@@ -176,6 +176,26 @@ public class PlaylistViewModelTests : IDisposable
         Assert.Equal(2, _vm.Items.Count);
     }
 
+    [Fact]
+    public void AddItems_RaisesSingleResetCollectionChangedEvent()
+    {
+        var eventCount = 0;
+        var actions = new List<System.Collections.Specialized.NotifyCollectionChangedAction>();
+
+        _vm.Items.CollectionChanged += (_, e) =>
+        {
+            eventCount++;
+            actions.Add(e.Action);
+        };
+
+        _vm.AddItems([@"C:\Videos\a.mp4", @"C:\Videos\b.mp4", @"C:\Videos\c.mp4"]);
+
+        Assert.Equal(3, _vm.Items.Count);
+        Assert.Equal(1, eventCount);
+        Assert.Single(actions);
+        Assert.Equal(System.Collections.Specialized.NotifyCollectionChangedAction.Reset, actions[0]);
+    }
+
     // ── HandleFileDrop ──
 
     [Fact]
