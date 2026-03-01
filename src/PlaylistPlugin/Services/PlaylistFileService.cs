@@ -44,13 +44,19 @@ public sealed class PlaylistFileService
             Items = playlist.Items.Select(i => new PlaylistItemDto { FilePath = i.FilePath }).ToList()
         };
 
-        var json = JsonSerializer.Serialize(dto, JsonOptions);
-
         var directory = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        await File.WriteAllTextAsync(filePath, json);
+        await using var stream = new FileStream(
+            filePath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 4096,
+            options: FileOptions.Asynchronous);
+
+        await JsonSerializer.SerializeAsync(stream, dto, JsonOptions);
 
         playlist.FilePath = filePath;
         playlist.IsDirty = false;
@@ -71,12 +77,18 @@ public sealed class PlaylistFileService
         if (!File.Exists(filePath))
             throw new FileNotFoundException("Playlist file not found.", filePath);
 
-        var json = await File.ReadAllTextAsync(filePath);
-
         PlaylistDto? dto;
+        await using var stream = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 4096,
+            options: FileOptions.Asynchronous);
+
         try
         {
-            dto = JsonSerializer.Deserialize<PlaylistDto>(json, JsonOptions);
+            dto = await JsonSerializer.DeserializeAsync<PlaylistDto>(stream, JsonOptions);
         }
         catch (JsonException ex)
         {
