@@ -16,12 +16,38 @@ public partial class PlaylistSidebarView : UserControl
     // ── Internal drag-reorder state ──
     private Point _dragStartPoint;
     private PlaylistItemViewModel? _draggedItem;
+    private ScrollViewer? _playlistScrollViewer;
+    private ContextMenu? _itemContextMenu;
+    private ContextMenu? _recentPlaylistsMenu;
+    private MenuItem? _moveToTopMenuItem;
+    private MenuItem? _moveUpMenuItem;
+    private MenuItem? _moveDownMenuItem;
+    private MenuItem? _moveToBottomMenuItem;
+    private MenuItem? _removeItemMenuItem;
+
+    private static readonly Brush MenuBackgroundBrush = CreateFrozenBrush(0x25, 0x25, 0x26);
+    private static readonly Brush MenuForegroundBrush = CreateFrozenBrush(0xCC, 0xCC, 0xCC);
+    private static readonly Brush MenuBorderBrush = CreateFrozenBrush(0x3C, 0x3C, 0x3C);
+    private static readonly Brush MenuHoverBrush = CreateFrozenBrush(0x2A, 0x2D, 0x2E);
+    private static readonly Brush MenuDisabledForegroundBrush = CreateFrozenBrush(0x6E, 0x6E, 0x6E);
+    private static readonly Brush InsertionIndicatorBrush = CreateFrozenBrush(0x00, 0x7A, 0xCC);
+    private static readonly Style FlatContextMenuStyle = CreateFlatContextMenuStyle();
+    private static readonly Style ContextMenuItemStyle = CreateContextMenuItemStyle();
+
     private static readonly string InternalDragFormat = "PlaylistInternalDrag";
 
     public PlaylistSidebarView()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+        Loaded += OnLoaded;
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        _ = GetPlaylistScrollViewer();
+        _itemContextMenu ??= CreateItemContextMenu();
+        _recentPlaylistsMenu ??= CreateRecentPlaylistsMenu();
     }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -147,42 +173,85 @@ public partial class PlaylistSidebarView : UserControl
         var index = vm.Items.IndexOf(item);
         var count = vm.Items.Count;
 
-        var menu = new ContextMenu
-        {
-            Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26)),
-            Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C)),
-            BorderThickness = new Thickness(1),
-            Style = CreateFlatContextMenuStyle()
-        };
+        _itemContextMenu ??= CreateItemContextMenu();
 
-        var itemStyle = CreateContextMenuItemStyle();
+        UpdateItemContextMenu(vm, item, index, count);
 
-        menu.Items.Add(CreateContextMenuItem("Move to Top", vm.MoveToTopCommand, item, index > 0, itemStyle));
-        menu.Items.Add(CreateContextMenuItem("Move Up", vm.MoveUpCommand, item, index > 0, itemStyle));
-        menu.Items.Add(CreateContextMenuItem("Move Down", vm.MoveDownCommand, item, index < count - 1, itemStyle));
-        menu.Items.Add(CreateContextMenuItem("Move to Bottom", vm.MoveToBottomCommand, item, index < count - 1, itemStyle));
-        menu.Items.Add(CreateContextMenuItem("Remove from Playlist", vm.RemoveItemCommand, item, true, itemStyle));
-
-        menu.PlacementTarget = listBoxItem;
-        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
-        menu.IsOpen = true;
+        _itemContextMenu.PlacementTarget = listBoxItem;
+        _itemContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+        _itemContextMenu.IsOpen = true;
     }
 
-    private static MenuItem CreateContextMenuItem(string header, ICommand command, object parameter, bool isEnabled, Style style)
+    private void UpdateItemContextMenu(PlaylistViewModel vm, PlaylistItemViewModel item, int index, int count)
+    {
+        if (_moveToTopMenuItem is null ||
+            _moveUpMenuItem is null ||
+            _moveDownMenuItem is null ||
+            _moveToBottomMenuItem is null ||
+            _removeItemMenuItem is null)
+        {
+            return;
+        }
+
+        var canMoveUp = index > 0;
+        var canMoveDown = index < count - 1;
+
+        _moveToTopMenuItem.Command = vm.MoveToTopCommand;
+        _moveToTopMenuItem.CommandParameter = item;
+        _moveToTopMenuItem.IsEnabled = canMoveUp;
+
+        _moveUpMenuItem.Command = vm.MoveUpCommand;
+        _moveUpMenuItem.CommandParameter = item;
+        _moveUpMenuItem.IsEnabled = canMoveUp;
+
+        _moveDownMenuItem.Command = vm.MoveDownCommand;
+        _moveDownMenuItem.CommandParameter = item;
+        _moveDownMenuItem.IsEnabled = canMoveDown;
+
+        _moveToBottomMenuItem.Command = vm.MoveToBottomCommand;
+        _moveToBottomMenuItem.CommandParameter = item;
+        _moveToBottomMenuItem.IsEnabled = canMoveDown;
+
+        _removeItemMenuItem.Command = vm.RemoveItemCommand;
+        _removeItemMenuItem.CommandParameter = item;
+        _removeItemMenuItem.IsEnabled = true;
+    }
+
+    private ContextMenu CreateItemContextMenu()
+    {
+        _moveToTopMenuItem = CreateContextMenuItem("Move to Top", command: null, parameter: null, isEnabled: false, ContextMenuItemStyle);
+        _moveUpMenuItem = CreateContextMenuItem("Move Up", command: null, parameter: null, isEnabled: false, ContextMenuItemStyle);
+        _moveDownMenuItem = CreateContextMenuItem("Move Down", command: null, parameter: null, isEnabled: false, ContextMenuItemStyle);
+        _moveToBottomMenuItem = CreateContextMenuItem("Move to Bottom", command: null, parameter: null, isEnabled: false, ContextMenuItemStyle);
+        _removeItemMenuItem = CreateContextMenuItem("Remove from Playlist", command: null, parameter: null, isEnabled: true, ContextMenuItemStyle);
+
+        var menu = new ContextMenu
+        {
+            Background = MenuBackgroundBrush,
+            Foreground = MenuForegroundBrush,
+            BorderBrush = MenuBorderBrush,
+            BorderThickness = new Thickness(1),
+            Style = FlatContextMenuStyle
+        };
+
+        menu.Items.Add(_moveToTopMenuItem);
+        menu.Items.Add(_moveUpMenuItem);
+        menu.Items.Add(_moveDownMenuItem);
+        menu.Items.Add(_moveToBottomMenuItem);
+        menu.Items.Add(_removeItemMenuItem);
+
+        return menu;
+    }
+
+    private static MenuItem CreateContextMenuItem(string header, ICommand? command, object? parameter, bool isEnabled, Style style)
     {
         return new MenuItem
         {
-            Header = new TextBlock
-            {
-                Text = header,
-                Foreground = new SolidColorBrush(isEnabled
-                    ? Color.FromRgb(0xCC, 0xCC, 0xCC)
-                    : Color.FromRgb(0x6E, 0x6E, 0x6E))
-            },
+            Header = header,
             Command = command,
             CommandParameter = parameter,
             IsEnabled = isEnabled,
+            Foreground = MenuForegroundBrush,
             Style = style
         };
     }
@@ -191,7 +260,7 @@ public partial class PlaylistSidebarView : UserControl
     {
         var style = new Style(typeof(MenuItem));
         style.Setters.Add(new Setter(MenuItem.BackgroundProperty, Brushes.Transparent));
-        style.Setters.Add(new Setter(MenuItem.ForegroundProperty, new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC))));
+        style.Setters.Add(new Setter(MenuItem.ForegroundProperty, MenuForegroundBrush));
 
         var itemTemplate = new ControlTemplate(typeof(MenuItem));
         var itemBorder = new FrameworkElementFactory(typeof(Border));
@@ -204,8 +273,12 @@ public partial class PlaylistSidebarView : UserControl
         itemTemplate.VisualTree = itemBorder;
         style.Setters.Add(new Setter(MenuItem.TemplateProperty, itemTemplate));
 
+        var disabledTrigger = new Trigger { Property = MenuItem.IsEnabledProperty, Value = false };
+        disabledTrigger.Setters.Add(new Setter(MenuItem.ForegroundProperty, MenuDisabledForegroundBrush));
+        style.Triggers.Add(disabledTrigger);
+
         var hoverTrigger = new Trigger { Property = MenuItem.IsHighlightedProperty, Value = true };
-        hoverTrigger.Setters.Add(new Setter(MenuItem.BackgroundProperty, new SolidColorBrush(Color.FromRgb(0x2A, 0x2D, 0x2E))));
+        hoverTrigger.Setters.Add(new Setter(MenuItem.BackgroundProperty, MenuHoverBrush));
         style.Triggers.Add(hoverTrigger);
 
         return style;
@@ -346,7 +419,7 @@ public partial class PlaylistSidebarView : UserControl
         _insertionIndicator = new Border
         {
             Height = 2,
-            Background = new SolidColorBrush(Color.FromRgb(0x00, 0x7A, 0xCC)), // Accent blue
+            Background = InsertionIndicatorBrush,
             VerticalAlignment = VerticalAlignment.Top,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             IsHitTestVisible = false,
@@ -370,7 +443,7 @@ public partial class PlaylistSidebarView : UserControl
 
     private void AutoScrollListBox(DragEventArgs e)
     {
-        var scrollViewer = FindVisualChild<ScrollViewer>(PlaylistListBox);
+        var scrollViewer = GetPlaylistScrollViewer();
         if (scrollViewer is null) return;
 
         var pos = e.GetPosition(PlaylistListBox);
@@ -381,6 +454,12 @@ public partial class PlaylistSidebarView : UserControl
             scrollViewer.ScrollToVerticalOffset(scrollViewer.VerticalOffset - scrollStep);
         else if (pos.Y > PlaylistListBox.ActualHeight - scrollZone)
             scrollViewer.ScrollToVerticalOffset(scrollViewer.VerticalOffset + scrollStep);
+    }
+
+    private ScrollViewer? GetPlaylistScrollViewer()
+    {
+        _playlistScrollViewer ??= FindVisualChild<ScrollViewer>(PlaylistListBox);
+        return _playlistScrollViewer;
     }
 
     private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
@@ -404,38 +483,38 @@ public partial class PlaylistSidebarView : UserControl
         if (DataContext is not PlaylistViewModel vm || vm.RecentPlaylists.Count == 0)
             return;
 
-        var menu = new ContextMenu
-        {
-            Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26)),
-            Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C)),
-            BorderThickness = new Thickness(1),
-            Style = CreateFlatContextMenuStyle(),
-            ItemContainerStyle = CreateContextMenuItemStyle()
-        };
+        _recentPlaylistsMenu ??= CreateRecentPlaylistsMenu();
+        _recentPlaylistsMenu.Items.Clear();
 
         foreach (var path in vm.RecentPlaylists)
         {
-            var nameText = new TextBlock
-            {
-                Text = System.IO.Path.GetFileNameWithoutExtension(path),
-                MaxWidth = 180,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC))
-            };
             var menuItem = new MenuItem
             {
-                Header = nameText,
+                Header = System.IO.Path.GetFileNameWithoutExtension(path),
                 ToolTip = path,
                 Command = vm.OpenRecentPlaylistCommand,
-                CommandParameter = path
+                CommandParameter = path,
+                Style = ContextMenuItemStyle
             };
-            menu.Items.Add(menuItem);
+            _recentPlaylistsMenu.Items.Add(menuItem);
         }
 
-        menu.PlacementTarget = (Button)sender;
-        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
-        menu.IsOpen = true;
+        _recentPlaylistsMenu.PlacementTarget = (Button)sender;
+        _recentPlaylistsMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        _recentPlaylistsMenu.IsOpen = true;
+    }
+
+    private ContextMenu CreateRecentPlaylistsMenu()
+    {
+        return new ContextMenu
+        {
+            Background = MenuBackgroundBrush,
+            Foreground = MenuForegroundBrush,
+            BorderBrush = MenuBorderBrush,
+            BorderThickness = new Thickness(1),
+            Style = FlatContextMenuStyle,
+            ItemContainerStyle = ContextMenuItemStyle
+        };
     }
 
     private static Style CreateFlatContextMenuStyle()
@@ -444,8 +523,8 @@ public partial class PlaylistSidebarView : UserControl
 
         var template = new ControlTemplate(typeof(ContextMenu));
         var border = new FrameworkElementFactory(typeof(Border));
-        border.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26)));
-        border.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C)));
+        border.SetValue(Border.BackgroundProperty, MenuBackgroundBrush);
+        border.SetValue(Border.BorderBrushProperty, MenuBorderBrush);
         border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(2));
         border.SetValue(Border.PaddingProperty, new Thickness(2));
@@ -460,5 +539,12 @@ public partial class PlaylistSidebarView : UserControl
         style.Setters.Add(new Setter(ContextMenu.HasDropShadowProperty, true));
 
         return style;
+    }
+
+    private static SolidColorBrush CreateFrozenBrush(byte r, byte g, byte b)
+    {
+        var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+        brush.Freeze();
+        return brush;
     }
 }

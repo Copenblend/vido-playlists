@@ -16,6 +16,10 @@ public class PlaylistPlugin : IVidoPlugin
     private PlaylistViewModel? _viewModel;
     private PlaylistProvider? _playlistProvider;
 
+    /// <summary>
+    /// Activates the plugin and registers all playlist-related host contributions.
+    /// </summary>
+    /// <param name="context">Host plugin context for registering UI and services.</param>
     public void Activate(IPluginContext context)
     {
         _context = context;
@@ -54,6 +58,9 @@ public class PlaylistPlugin : IVidoPlugin
         _context.Logger.Info("Playlists plugin activated", "PlaylistPlugin");
     }
 
+    /// <summary>
+    /// Deactivates the plugin and releases registered resources.
+    /// </summary>
     public void Deactivate()
     {
         _context?.UnregisterPlaylistProvider();
