@@ -86,6 +86,32 @@ public class PlaylistViewModelTests : IDisposable
             new PlaylistViewModel(_fileService, _engineMock.Object, _eventBusMock.Object, null!));
     }
 
+    [Fact]
+    public void Constructor_RestoreLastPlaylistException_DoesNotThrow()
+    {
+        var settingsMock = new Mock<IPluginSettingsStore>();
+        settingsMock.Setup(s => s.Get("recentPlaylists", string.Empty)).Returns(string.Empty);
+        settingsMock.Setup(s => s.Get("lastPlaylistPath", string.Empty)).Throws(new InvalidOperationException("boom"));
+
+        var eventBus = new Mock<IEventBus>();
+        eventBus
+            .Setup(e => e.Subscribe(It.IsAny<Action<VideoLoadedEvent>>()))
+            .Returns(Mock.Of<IDisposable>());
+
+        var exception = Record.Exception(() =>
+        {
+            var vm = new PlaylistViewModel(
+                _fileService,
+                _engineMock.Object,
+                eventBus.Object,
+                _dialogMock.Object,
+                settingsMock.Object);
+            vm.Dispose();
+        });
+
+        Assert.Null(exception);
+    }
+
     // ── AddItem ──
 
     [Fact]
@@ -205,6 +231,21 @@ public class PlaylistViewModelTests : IDisposable
         Assert.Equal(1, eventCount);
         Assert.Single(actions);
         Assert.Equal(System.Collections.Specialized.NotifyCollectionChangedAction.Reset, actions[0]);
+    }
+
+    [Fact]
+    public void AddItems_RaisesHasItemsPropertyChangedOnce()
+    {
+        var hasItemsChangedCount = 0;
+        _vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PlaylistViewModel.HasItems))
+                hasItemsChangedCount++;
+        };
+
+        _vm.AddItems([@"C:\Videos\a.mp4", @"C:\Videos\b.mp4", @"C:\Videos\c.mp4"]);
+
+        Assert.Equal(1, hasItemsChangedCount);
     }
 
     // ── HandleFileDrop ──
@@ -741,6 +782,54 @@ public class PlaylistViewModelTests : IDisposable
         _vm.AddRecentPlaylist(@"C:\Playlists\a.vidpl");
 
         _settingsMock.Verify(s => s.Set("recentPlaylists", It.Is<string>(v => v.Contains(@"C:\Playlists\a.vidpl"))), Times.Once);
+    }
+
+    [Fact]
+    public void EnsureRecentPlaylistsLoaded_DeferredUntilFirstAccess()
+    {
+        var recentPath = Path.Combine(_tempDir, "recent-loaded.vidpl");
+        File.WriteAllText(recentPath, "{}");
+        _settingsMock.Setup(s => s.Get("recentPlaylists", string.Empty)).Returns(recentPath);
+
+        var vm = new PlaylistViewModel(
+            _fileService,
+            _engineMock.Object,
+            _eventBusMock.Object,
+            _dialogMock.Object,
+            _settingsMock.Object);
+
+        Assert.Empty(vm.RecentPlaylists);
+
+        vm.EnsureRecentPlaylistsLoaded();
+
+        Assert.Single(vm.RecentPlaylists);
+        Assert.Equal(recentPath, vm.RecentPlaylists[0]);
+
+        _settingsMock.Verify(s => s.Get("recentPlaylists", string.Empty), Times.Once);
+
+        vm.Dispose();
+    }
+
+    [Fact]
+    public void EnsureRecentPlaylistsLoaded_IsIdempotent()
+    {
+        var recentPath = Path.Combine(_tempDir, "recent-idempotent.vidpl");
+        File.WriteAllText(recentPath, "{}");
+        _settingsMock.Setup(s => s.Get("recentPlaylists", string.Empty)).Returns(recentPath);
+
+        var vm = new PlaylistViewModel(
+            _fileService,
+            _engineMock.Object,
+            _eventBusMock.Object,
+            _dialogMock.Object,
+            _settingsMock.Object);
+
+        vm.EnsureRecentPlaylistsLoaded();
+        vm.EnsureRecentPlaylistsLoaded();
+
+        _settingsMock.Verify(s => s.Get("recentPlaylists", string.Empty), Times.Once);
+
+        vm.Dispose();
     }
 
     [Fact]

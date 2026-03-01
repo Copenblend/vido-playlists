@@ -13,6 +13,13 @@ namespace PlaylistPlugin.Services;
 /// </summary>
 public sealed class ToastService
 {
+    private static readonly SolidColorBrush WhiteBrush = CreateFrozenBrush(Colors.White);
+    private static readonly SolidColorBrush InfoBackgroundBrush = CreateFrozenBrush(Color.FromRgb(0x00, 0x7A, 0xCC));
+    private static readonly SolidColorBrush InfoBorderBrush = CreateFrozenBrush(Color.FromRgb(0x00, 0x5A, 0x9E));
+    private static readonly SolidColorBrush ErrorBackgroundBrush = CreateFrozenBrush(Color.FromRgb(0xC4, 0x2B, 0x1C));
+    private static readonly SolidColorBrush ErrorBorderBrush = CreateFrozenBrush(Color.FromRgb(0x9E, 0x22, 0x16));
+    private static readonly System.Windows.Media.Effects.DropShadowEffect SharedShadowEffect = CreateFrozenShadowEffect();
+
     private Border? _currentToast;
     private DispatcherTimer? _hideTimer;
 
@@ -23,8 +30,8 @@ public sealed class ToastService
     public void Show(string message, string? boldSuffix = null)
     {
         ShowInternal(message, boldSuffix,
-            background: Color.FromRgb(0x00, 0x7A, 0xCC),   // #007ACC
-            border: Color.FromRgb(0x00, 0x5A, 0x9E),
+            background: InfoBackgroundBrush,
+            border: InfoBorderBrush,
             icon: "\uE946"); // info icon
     }
 
@@ -35,12 +42,12 @@ public sealed class ToastService
     public void ShowError(string message, string? boldSuffix = null)
     {
         ShowInternal(message, boldSuffix,
-            background: Color.FromRgb(0xC4, 0x2B, 0x1C),   // #C42B1C
-            border: Color.FromRgb(0x9E, 0x22, 0x16),
+            background: ErrorBackgroundBrush,
+            border: ErrorBorderBrush,
             icon: "\uEA39"); // error/warning icon
     }
 
-    private void ShowInternal(string message, string? boldSuffix, Color background, Color border, string icon)
+    private void ShowInternal(string message, string? boldSuffix, Brush background, Brush border, string icon)
     {
         var app = Application.Current;
         if (app is null) return;
@@ -60,7 +67,7 @@ public sealed class ToastService
                 Text = icon,
                 FontFamily = new FontFamily("Segoe MDL2 Assets"),
                 FontSize = 14,
-                Foreground = Brushes.White,
+                Foreground = WhiteBrush,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 8, 0)
             };
@@ -68,7 +75,7 @@ public sealed class ToastService
             // Message text
             var textBlock = new TextBlock
             {
-                Foreground = Brushes.White,
+                Foreground = WhiteBrush,
                 FontFamily = new FontFamily("Segoe UI"),
                 FontSize = 13,
                 TextTrimming = TextTrimming.CharacterEllipsis,
@@ -91,8 +98,8 @@ public sealed class ToastService
             // Notification container
             var toast = new Border
             {
-                Background = new SolidColorBrush(background),
-                BorderBrush = new SolidColorBrush(border),
+                Background = background,
+                BorderBrush = border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(12, 8, 14, 8),
@@ -101,13 +108,7 @@ public sealed class ToastService
                 Margin = new Thickness(0, 0, 12, 8),
                 IsHitTestVisible = false,
                 Opacity = 0,
-                Effect = new System.Windows.Media.Effects.DropShadowEffect
-                {
-                    Color = Colors.Black,
-                    BlurRadius = 10,
-                    ShadowDepth = 2,
-                    Opacity = 0.5
-                },
+                Effect = SharedShadowEffect,
                 Child = contentPanel
             };
 
@@ -159,5 +160,25 @@ public sealed class ToastService
             rootGrid.Children.Remove(_currentToast);
             _currentToast = null;
         }
+    }
+
+    private static SolidColorBrush CreateFrozenBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
+
+    private static System.Windows.Media.Effects.DropShadowEffect CreateFrozenShadowEffect()
+    {
+        var shadow = new System.Windows.Media.Effects.DropShadowEffect
+        {
+            Color = Colors.Black,
+            BlurRadius = 10,
+            ShadowDepth = 2,
+            Opacity = 0.5
+        };
+        shadow.Freeze();
+        return shadow;
     }
 }
