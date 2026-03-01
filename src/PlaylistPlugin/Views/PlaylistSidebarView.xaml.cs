@@ -480,7 +480,12 @@ public partial class PlaylistSidebarView : UserControl
 
     private void OnRecentButtonClick(object sender, RoutedEventArgs e)
     {
-        if (DataContext is not PlaylistViewModel vm || vm.RecentPlaylists.Count == 0)
+        if (DataContext is not PlaylistViewModel vm)
+            return;
+
+        vm.EnsureRecentPlaylistsLoaded();
+
+        if (vm.RecentPlaylists.Count == 0)
             return;
 
         _recentPlaylistsMenu ??= CreateRecentPlaylistsMenu();

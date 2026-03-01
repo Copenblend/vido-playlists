@@ -34,6 +34,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     private readonly Dictionary<string, PlaylistItemViewModel> _vmIndex = new(StringComparer.OrdinalIgnoreCase);
     private int _currentItemIndex = -1;
     private CancellationTokenSource? _autoSaveCts;
+    private bool _recentPlaylistsLoaded;
     private string _playlistName = string.Empty;
     private string _statusText = string.Empty;
     private IDisposable? _videoLoadedSubscription;
@@ -261,13 +262,6 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         // Subscribe to video loaded events to track currently playing item
         _videoLoadedSubscription = _eventBus.Subscribe<VideoLoadedEvent>(OnVideoLoaded);
 
-        Items.CollectionChanged += (_, _) =>
-        {
-            OnPropertyChanged(nameof(HasItems));
-            UpdateStatusText();
-        };
-
-        LoadRecentPlaylists();
         UpdateStatusText();
         RestoreLastPlaylist();
     }
@@ -546,6 +540,8 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
 
     private async void ExecuteOpenRecentPlaylist(string? path)
     {
+        EnsureRecentPlaylistsLoaded();
+
         if (string.IsNullOrWhiteSpace(path)) return;
 
         if (!File.Exists(path))
@@ -662,6 +658,17 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// Loads recent playlists the first time they are needed.
+    /// </summary>
+    internal void EnsureRecentPlaylistsLoaded()
+    {
+        if (_recentPlaylistsLoaded) return;
+
+        _recentPlaylistsLoaded = true;
+        LoadRecentPlaylists();
+    }
+
     internal void AddRecentPlaylist(string path)
     {
         // Remove if already exists (to move to top)
@@ -703,10 +710,17 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
 
     private async void RestoreLastPlaylist()
     {
-        var lastPath = _settings?.Get(LastPlaylistPathKey, string.Empty) ?? string.Empty;
-        if (!string.IsNullOrWhiteSpace(lastPath) && File.Exists(lastPath))
+        try
         {
-            await LoadPlaylistFromPathAsync(lastPath);
+            var lastPath = _settings?.Get(LastPlaylistPathKey, string.Empty) ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(lastPath) && File.Exists(lastPath))
+            {
+                await LoadPlaylistFromPathAsync(lastPath);
+            }
+        }
+        catch
+        {
+            // Best-effort restore only. Ignore startup restore failures.
         }
     }
 
@@ -806,6 +820,8 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
 
         // Rebuild shuffle order when playlist items change
         _playlistProvider?.RebuildShuffleOrder();
+        OnPropertyChanged(nameof(HasItems));
+        UpdateStatusText();
     }
 
     private void RebuildItems()
