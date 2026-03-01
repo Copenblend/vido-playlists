@@ -11,6 +11,8 @@ namespace PlaylistPlugin.ViewModels;
 public sealed class PlaylistItemViewModel : INotifyPropertyChanged
 {
     private bool _isPlaying;
+    private bool _fileExists;
+    private string? _toolTipText;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -42,12 +44,12 @@ public sealed class PlaylistItemViewModel : INotifyPropertyChanged
     /// Whether the referenced file exists on disk.
     /// Used to gray-out missing files in the UI.
     /// </summary>
-    public bool FileExists => File.Exists(FilePath);
+    public bool FileExists => _fileExists;
 
     /// <summary>
     /// Tooltip text showing the full path and existence status.
     /// </summary>
-    public string ToolTipText => FileExists
+    public string ToolTipText => _toolTipText ??= FileExists
         ? FilePath
         : $"{FilePath} (file not found)";
 
@@ -62,6 +64,22 @@ public sealed class PlaylistItemViewModel : INotifyPropertyChanged
         Model = item;
         FileName = item.FileName;
         FilePath = item.FilePath;
+        _fileExists = File.Exists(FilePath);
+    }
+
+    /// <summary>
+    /// Re-checks whether the file exists on disk and updates bound properties when state changes.
+    /// </summary>
+    public void RefreshFileExists()
+    {
+        var exists = File.Exists(FilePath);
+        if (exists == _fileExists) return;
+
+        _fileExists = exists;
+        _toolTipText = null;
+
+        OnPropertyChanged(nameof(FileExists));
+        OnPropertyChanged(nameof(ToolTipText));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

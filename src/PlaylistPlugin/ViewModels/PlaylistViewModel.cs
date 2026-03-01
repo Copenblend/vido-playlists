@@ -82,7 +82,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     /// <summary>
     /// Observable collection of item ViewModels bound to the list view.
     /// </summary>
-    public ObservableCollection<PlaylistItemViewModel> Items { get; } = [];
+    public RangeObservableCollection<PlaylistItemViewModel> Items { get; } = [];
 
     /// <summary>
     /// The currently selected / playing item.
@@ -287,10 +287,16 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     public void AddItems(IEnumerable<string> filePaths)
     {
         ArgumentNullException.ThrowIfNull(filePaths);
-        foreach (var path in filePaths)
-        {
-            AddItem(path);
-        }
+
+        var newItems = filePaths
+            .Where(IsVideoFile)
+            .Select(path => new PlaylistItem(path))
+            .Where(item => !_currentPlaylist.Items.Contains(item))
+            .ToList();
+
+        if (newItems.Count == 0) return;
+
+        _currentPlaylist.Items.AddRange(newItems);
     }
 
     /// <summary>
@@ -772,7 +778,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
                 break;
 
             case NotifyCollectionChangedAction.Reset:
-                Items.Clear();
+                RebuildItems();
                 break;
 
             case NotifyCollectionChangedAction.Move:
@@ -793,11 +799,9 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
 
     private void RebuildItems()
     {
-        Items.Clear();
-        foreach (var item in _currentPlaylist.Items)
-        {
-            Items.Add(new PlaylistItemViewModel(item));
-        }
+        var viewModels = _currentPlaylist.Items
+            .Select(item => new PlaylistItemViewModel(item));
+        Items.ReplaceAll(viewModels);
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

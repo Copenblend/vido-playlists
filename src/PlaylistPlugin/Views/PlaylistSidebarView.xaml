@@ -89,13 +89,16 @@
                      ItemsSource="{Binding Items}"
                      SelectedItem="{Binding CurrentItem, Mode=TwoWay}"
                      Background="Transparent"
+                     VirtualizingStackPanel.IsVirtualizing="True"
+                     VirtualizingStackPanel.VirtualizationMode="Recycling"
+                     ScrollViewer.CanContentScroll="True"
                      ScrollViewer.VerticalScrollBarVisibility="Auto">
 
                 <ListBox.Template>
                     <ControlTemplate TargetType="ListBox">
                         <ScrollViewer Style="{StaticResource PlaylistScrollViewerStyle}"
                                       Focusable="False"
-                                      CanContentScroll="False">
+                                      CanContentScroll="True">
                             <ItemsPresenter />
                         </ScrollViewer>
                     </ControlTemplate>

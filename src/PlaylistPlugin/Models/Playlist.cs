@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -35,7 +34,7 @@ public sealed class Playlist : INotifyPropertyChanged
     /// <summary>
     /// Ordered list of items in the playlist.
     /// </summary>
-    public ObservableCollection<PlaylistItem> Items { get; }
+    public RangeObservableCollection<PlaylistItem> Items { get; }
 
     /// <summary>
     /// Path where the playlist file is saved on disk.
@@ -78,7 +77,7 @@ public sealed class Playlist : INotifyPropertyChanged
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         _name = name;
-        Items = new ObservableCollection<PlaylistItem>(items);
+        Items = new RangeObservableCollection<PlaylistItem>(items);
         Items.CollectionChanged += OnItemsCollectionChanged;
     }
 
