@@ -30,6 +30,10 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
 
     private Playlist _currentPlaylist;
     private PlaylistItemViewModel? _currentItem;
+    private readonly HashSet<string> _pathIndex = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PlaylistItemViewModel> _vmIndex = new(StringComparer.OrdinalIgnoreCase);
+    private int _currentItemIndex = -1;
+    private CancellationTokenSource? _autoSaveCts;
     private string _playlistName = string.Empty;
     private string _statusText = string.Empty;
     private IDisposable? _videoLoadedSubscription;
@@ -39,6 +43,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     private const string LastPlaylistPathKey = "lastPlaylistPath";
     private const string AutoSaveKey = "autoSave";
     private const int MaxRecentPlaylists = 10;
+    private const int AutoSaveDebounceMs = 500;
 
     /// <summary>
     /// Supported video file extensions (matches Vido's FileNode.VideoExtensions).
@@ -101,6 +106,8 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
 
             // Set new playing indicator
             if (_currentItem != null) _currentItem.IsPlaying = true;
+
+            _currentItemIndex = _currentItem is not null ? Items.IndexOf(_currentItem) : -1;
 
             OnPropertyChanged();
         }
@@ -264,12 +271,9 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         // Only allow video files
         if (!IsVideoFile(filePath)) return;
 
-        var item = new PlaylistItem(filePath);
+        if (!_pathIndex.Add(filePath)) return;
 
-        // Skip duplicates (case-insensitive path comparison via PlaylistItem.Equals)
-        if (_currentPlaylist.Items.Contains(item)) return;
-
-        _currentPlaylist.Items.Add(item);
+        _currentPlaylist.Items.Add(new PlaylistItem(filePath));
     }
 
     /// <summary>
@@ -289,9 +293,8 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         ArgumentNullException.ThrowIfNull(filePaths);
 
         var newItems = filePaths
-            .Where(IsVideoFile)
+            .Where(path => IsVideoFile(path) && _pathIndex.Add(path))
             .Select(path => new PlaylistItem(path))
-            .Where(item => !_currentPlaylist.Items.Contains(item))
             .ToList();
 
         if (newItems.Count == 0) return;
@@ -304,21 +307,15 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     /// For directories, recursively enumerates and adds all files within.
     /// Skips duplicates.
     /// </summary>
-    public void AddFromFileNode(string fullPath, bool isDirectory)
+    public async void AddFromFileNode(string fullPath, bool isDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fullPath);
 
         if (isDirectory)
         {
-            try
-            {
-                var files = Directory.EnumerateFiles(fullPath, "*", SearchOption.AllDirectories);
+            var files = await Task.Run(() => EnumerateVideoFilesFromDirectory(fullPath));
+            if (files.Count > 0)
                 AddItems(files);
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // Skip folders we can't access
-            }
         }
         else
         {
@@ -336,15 +333,11 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     {
         if (item is null) return;
 
-        var model = _currentPlaylist.Items.FirstOrDefault(i =>
-            string.Equals(i.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
-
-        if (model is null) return;
-
         if (ReferenceEquals(item, _currentItem))
             CurrentItem = null;
 
-        _currentPlaylist.Items.Remove(model);
+        _pathIndex.Remove(item.FilePath);
+        _currentPlaylist.Items.Remove(item.Model);
         AutoSaveIfEnabled();
     }
 
@@ -380,7 +373,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     /// Supports .vidpl playlist files (opens them) and video files (adds to playlist).
     /// Shows error toast for unsupported file types.
     /// </summary>
-    public void HandleFileDrop(string[] droppedPaths)
+    public async void HandleFileDrop(string[] droppedPaths)
     {
         ArgumentNullException.ThrowIfNull(droppedPaths);
 
@@ -396,37 +389,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
             return;
         }
 
-        var filePaths = new List<string>();
-        var hasUnsupported = false;
-
-        foreach (var path in droppedPaths)
-        {
-            if (Directory.Exists(path))
-            {
-                // Recursively enumerate all files in the dropped folder
-                try
-                {
-                    var files = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories);
-                    foreach (var file in files)
-                    {
-                        if (IsVideoFile(file))
-                            filePaths.Add(file);
-                        // Non-video files in folders are silently skipped
-                    }
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    // Skip folders we can't access
-                }
-            }
-            else if (File.Exists(path))
-            {
-                if (IsVideoFile(path))
-                    filePaths.Add(path);
-                else
-                    hasUnsupported = true;
-            }
-        }
+        var (filePaths, hasUnsupported) = await Task.Run(() => CollectDroppedVideoFiles(droppedPaths));
 
         if (filePaths.Count > 0)
         {
@@ -449,6 +412,10 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     /// </summary>
     public void Dispose()
     {
+        _autoSaveCts?.Cancel();
+        _autoSaveCts?.Dispose();
+        _autoSaveCts = null;
+
         _videoLoadedSubscription?.Dispose();
         _videoLoadedSubscription = null;
     }
@@ -462,7 +429,25 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         var autoSave = _settings?.Get(AutoSaveKey, false) ?? false;
         if (!autoSave) return;
 
-        _ = SaveCurrentPlaylistAsync(saveAs: false);
+        _autoSaveCts?.Cancel();
+        _autoSaveCts?.Dispose();
+        _autoSaveCts = new CancellationTokenSource();
+
+        _ = DebounceAutoSaveAsync(_autoSaveCts.Token);
+    }
+
+    private async Task DebounceAutoSaveAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(AutoSaveDebounceMs, cancellationToken);
+            if (!cancellationToken.IsCancellationRequested)
+                await SaveCurrentPlaylistAsync(saveAs: false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when debounce is reset or ViewModel is disposed.
+        }
     }
 
     // ── Private Helpers ──
@@ -714,8 +699,7 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         string text;
         if (_currentItem != null)
         {
-            var index = Items.IndexOf(_currentItem);
-            text = $"Playing {index + 1} of {Items.Count} — {_playlistName}";
+            text = $"Playing {_currentItemIndex + 1} of {Items.Count} — {_playlistName}";
         }
         else
         {
@@ -728,18 +712,15 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
 
     private void OnVideoLoaded(VideoLoadedEvent e)
     {
-        // Find the item matching the loaded file and mark it as playing
-        var match = Items.FirstOrDefault(i =>
-            string.Equals(i.FilePath, e.FilePath, StringComparison.OrdinalIgnoreCase));
+        _vmIndex.TryGetValue(e.FilePath, out var match);
 
         CurrentItem = match;
 
         if (match is not null && _playlistProvider is not null)
         {
             // Video is in the playlist — update the provider's index
-            var index = Items.IndexOf(match);
             if (_playlistProvider.IsActive)
-                _playlistProvider.SetCurrentIndex(index);
+                _playlistProvider.SetCurrentIndex(_currentItemIndex);
         }
         else if (match is null && _playlistProvider is not null)
         {
@@ -760,7 +741,10 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
                     var index = e.NewStartingIndex;
                     foreach (PlaylistItem item in e.NewItems)
                     {
-                        Items.Insert(index++, new PlaylistItemViewModel(item));
+                        var vm = new PlaylistItemViewModel(item);
+                        Items.Insert(index++, vm);
+                        _vmIndex[vm.FilePath] = vm;
+                        _pathIndex.Add(vm.FilePath);
                     }
                 }
                 break;
@@ -770,9 +754,16 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
                 {
                     foreach (PlaylistItem item in e.OldItems)
                     {
-                        var vm = Items.FirstOrDefault(i =>
-                            string.Equals(i.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
-                        if (vm != null) Items.Remove(vm);
+                        _pathIndex.Remove(item.FilePath);
+
+                        if (_vmIndex.TryGetValue(item.FilePath, out var vm))
+                        {
+                            _vmIndex.Remove(item.FilePath);
+                            if (ReferenceEquals(vm, _currentItem))
+                                CurrentItem = null;
+
+                            Items.Remove(vm);
+                        }
                     }
                 }
                 break;
@@ -785,6 +776,8 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
                 if (e.OldStartingIndex >= 0 && e.NewStartingIndex >= 0)
                 {
                     Items.Move(e.OldStartingIndex, e.NewStartingIndex);
+                    if (_currentItem is not null)
+                        _currentItemIndex = Items.IndexOf(_currentItem);
                 }
                 break;
 
@@ -799,9 +792,81 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
 
     private void RebuildItems()
     {
+        var currentFilePath = _currentItem?.FilePath;
+
         var viewModels = _currentPlaylist.Items
             .Select(item => new PlaylistItemViewModel(item));
+
         Items.ReplaceAll(viewModels);
+
+        _vmIndex.Clear();
+        _pathIndex.Clear();
+
+        foreach (var vm in Items)
+        {
+            _vmIndex[vm.FilePath] = vm;
+            _pathIndex.Add(vm.FilePath);
+        }
+
+        if (currentFilePath is not null && _vmIndex.TryGetValue(currentFilePath, out var newCurrentItem))
+        {
+            CurrentItem = newCurrentItem;
+        }
+        else
+        {
+            _currentItemIndex = -1;
+            CurrentItem = null;
+        }
+    }
+
+    private static List<string> EnumerateVideoFilesFromDirectory(string directoryPath)
+    {
+        if (!Directory.Exists(directoryPath)) return [];
+
+        var filePaths = new List<string>();
+
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(directoryPath, "*", SearchOption.AllDirectories))
+            {
+                if (IsVideoFile(file))
+                    filePaths.Add(file);
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Skip folders we can't access.
+        }
+        catch (IOException)
+        {
+            // Skip transient file system errors.
+        }
+
+        return filePaths;
+    }
+
+    private static (List<string> FilePaths, bool HasUnsupported) CollectDroppedVideoFiles(IEnumerable<string> droppedPaths)
+    {
+        var filePaths = new List<string>();
+        var hasUnsupported = false;
+
+        foreach (var path in droppedPaths)
+        {
+            if (Directory.Exists(path))
+            {
+                filePaths.AddRange(EnumerateVideoFilesFromDirectory(path));
+                continue;
+            }
+
+            if (!File.Exists(path)) continue;
+
+            if (IsVideoFile(path))
+                filePaths.Add(path);
+            else
+                hasUnsupported = true;
+        }
+
+        return (filePaths, hasUnsupported);
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

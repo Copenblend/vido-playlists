@@ -109,6 +109,17 @@ public class PlaylistViewModelTests : IDisposable
     }
 
     [Fact]
+    public void AddItem_AllowsReAddAfterRemove()
+    {
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+        _vm.RemoveItem(_vm.Items[0]);
+        _vm.AddItem(@"C:\Videos\VIDEO1.MP4");
+
+        Assert.Single(_vm.Items);
+        Assert.Equal("VIDEO1.MP4", _vm.Items[0].FileName);
+    }
+
+    [Fact]
     public void AddItem_ThrowsOnNullOrWhiteSpace()
     {
         Assert.ThrowsAny<ArgumentException>(() => _vm.AddItem(null!));
@@ -199,7 +210,7 @@ public class PlaylistViewModelTests : IDisposable
     // ── HandleFileDrop ──
 
     [Fact]
-    public void HandleFileDrop_AddsDroppedFiles()
+    public async Task HandleFileDrop_AddsDroppedFiles()
     {
         // Create real temp files
         var file1 = Path.Combine(_tempDir, "video1.mp4");
@@ -209,11 +220,13 @@ public class PlaylistViewModelTests : IDisposable
 
         _vm.HandleFileDrop([file1, file2]);
 
+        await WaitForConditionAsync(() => _vm.Items.Count == 2);
+
         Assert.Equal(2, _vm.Items.Count);
     }
 
     [Fact]
-    public void HandleFileDrop_RecursivelyScansDroppedFolders()
+    public async Task HandleFileDrop_RecursivelyScansDroppedFolders()
     {
         // Create nested folder structure
         var subDir = Path.Combine(_tempDir, "subfolder");
@@ -224,11 +237,13 @@ public class PlaylistViewModelTests : IDisposable
 
         _vm.HandleFileDrop([_tempDir]);
 
+        await WaitForConditionAsync(() => _vm.Items.Count == 2);
+
         Assert.Equal(2, _vm.Items.Count);
     }
 
     [Fact]
-    public void HandleFileDrop_SkipsNonVideoFiles()
+    public async Task HandleFileDrop_SkipsNonVideoFiles()
     {
         File.WriteAllText(Path.Combine(_tempDir, "video.mp4"), "fake");
         File.WriteAllText(Path.Combine(_tempDir, "readme.txt"), "fake");
@@ -236,6 +251,8 @@ public class PlaylistViewModelTests : IDisposable
         File.WriteAllText(Path.Combine(_tempDir, "script.funscript"), "fake");
 
         _vm.HandleFileDrop([_tempDir]);
+
+        await WaitForConditionAsync(() => _vm.Items.Count == 1);
 
         Assert.Single(_vm.Items);
         Assert.Equal("video.mp4", _vm.Items[0].FileName);
@@ -427,7 +444,7 @@ public class PlaylistViewModelTests : IDisposable
     }
 
     [Fact]
-    public void AddFromFileNode_Directory_RecursivelyAddsAllFiles()
+    public async Task AddFromFileNode_Directory_RecursivelyAddsAllFiles()
     {
         var subDir = Path.Combine(_tempDir, "sub");
         Directory.CreateDirectory(subDir);
@@ -435,6 +452,8 @@ public class PlaylistViewModelTests : IDisposable
         File.WriteAllText(Path.Combine(subDir, "nested.mp4"), "fake");
 
         _vm.AddFromFileNode(_tempDir, isDirectory: true);
+
+        await WaitForConditionAsync(() => _vm.Items.Count == 2);
 
         Assert.Equal(2, _vm.Items.Count);
     }
@@ -462,13 +481,15 @@ public class PlaylistViewModelTests : IDisposable
     }
 
     [Fact]
-    public void AddFromFileNode_Directory_SkipsDuplicatesAcrossExisting()
+    public async Task AddFromFileNode_Directory_SkipsDuplicatesAcrossExisting()
     {
         var filePath = Path.Combine(_tempDir, "video.mp4");
         File.WriteAllText(filePath, "fake");
         _vm.AddItem(filePath);
 
         _vm.AddFromFileNode(_tempDir, isDirectory: true);
+
+        await Task.Delay(150);
 
         Assert.Single(_vm.Items);
     }
@@ -773,7 +794,7 @@ public class PlaylistViewModelTests : IDisposable
     }
 
     [Fact]
-    public void HandleFileDrop_MixedFiles_AddsOnlyVideoFiles()
+    public async Task HandleFileDrop_MixedFiles_AddsOnlyVideoFiles()
     {
         var mp4File = Path.Combine(_tempDir, "video.mp4");
         var txtFile = Path.Combine(_tempDir, "readme.txt");
@@ -782,18 +803,22 @@ public class PlaylistViewModelTests : IDisposable
 
         _vm.HandleFileDrop([mp4File, txtFile]);
 
+        await WaitForConditionAsync(() => _vm.Items.Count == 1);
+
         Assert.Single(_vm.Items);
         Assert.Equal("video.mp4", _vm.Items[0].FileName);
     }
 
     [Fact]
-    public void HandleFileDrop_FolderWithMixedFiles_AddsOnlyVideoFiles()
+    public async Task HandleFileDrop_FolderWithMixedFiles_AddsOnlyVideoFiles()
     {
         File.WriteAllText(Path.Combine(_tempDir, "video.mkv"), "fake");
         File.WriteAllText(Path.Combine(_tempDir, "script.funscript"), "fake");
         File.WriteAllText(Path.Combine(_tempDir, "notes.txt"), "fake");
 
         _vm.HandleFileDrop([_tempDir]);
+
+        await WaitForConditionAsync(() => _vm.Items.Count == 1);
 
         Assert.Single(_vm.Items);
         Assert.Equal("video.mkv", _vm.Items[0].FileName);
@@ -855,14 +880,13 @@ public class PlaylistViewModelTests : IDisposable
 
         _vm.AutoSaveIfEnabled();
 
-        // Allow async save to complete
-        await Task.Delay(100);
+        await WaitForConditionAsync(() => File.Exists(savePath));
 
         Assert.True(File.Exists(savePath));
     }
 
     [Fact]
-    public void AutoSaveIfEnabled_PromptsDialogWhenNoPath()
+    public async Task AutoSaveIfEnabled_PromptsDialogWhenNoPath()
     {
         _vm.AddItem(@"C:\Videos\video1.mp4");
 
@@ -875,7 +899,39 @@ public class PlaylistViewModelTests : IDisposable
 
         _vm.AutoSaveIfEnabled();
 
+        await Task.Delay(700);
+
         _dialogMock.Verify(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AutoSaveIfEnabled_RapidCalls_CoalescesToSingleSaveAttempt()
+    {
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+        _settingsMock.Setup(s => s.Get("autoSave", false)).Returns(true);
+        _dialogMock.Setup(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns((string?)null);
+
+        for (var i = 0; i < 5; i++)
+            _vm.AutoSaveIfEnabled();
+
+        await Task.Delay(700);
+
+        _dialogMock.Verify(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Dispose_CancelsPendingDebouncedAutoSave()
+    {
+        _vm.AddItem(@"C:\Videos\video1.mp4");
+        _settingsMock.Setup(s => s.Get("autoSave", false)).Returns(true);
+
+        _vm.AutoSaveIfEnabled();
+        _vm.Dispose();
+
+        await Task.Delay(700);
+
+        _dialogMock.Verify(d => d.ShowSaveFileDialog(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
@@ -892,7 +948,7 @@ public class PlaylistViewModelTests : IDisposable
     }
 
     [Fact]
-    public void AddFromFileNode_TriggersAutoSave()
+    public async Task AddFromFileNode_TriggersAutoSave()
     {
         var savePath = Path.Combine(_tempDir, "autosave.vidpl");
         _vm.CurrentPlaylist.FilePath = savePath;
@@ -905,7 +961,8 @@ public class PlaylistViewModelTests : IDisposable
 
         _vm.AddFromFileNode(filePath, isDirectory: false);
 
-        // File should be saved (auto-save triggered)
+        await WaitForConditionAsync(() => File.Exists(savePath));
+
         Assert.True(File.Exists(savePath));
     }
 
@@ -991,7 +1048,7 @@ public class PlaylistViewModelTests : IDisposable
     }
 
     [Fact]
-    public void RemoveItem_TriggersAutoSave()
+    public async Task RemoveItem_TriggersAutoSave()
     {
         var savePath = Path.Combine(_tempDir, "autosave.vidpl");
         _vm.CurrentPlaylist.FilePath = savePath;
@@ -1001,6 +1058,8 @@ public class PlaylistViewModelTests : IDisposable
         _vm.AddItem(@"C:\Videos\b.mp4");
 
         _vm.RemoveItem(_vm.Items[0]);
+
+        await WaitForConditionAsync(() => File.Exists(savePath));
 
         Assert.True(File.Exists(savePath));
     }
@@ -1103,7 +1162,7 @@ public class PlaylistViewModelTests : IDisposable
     }
 
     [Fact]
-    public void MoveItem_TriggersAutoSave()
+    public async Task MoveItem_TriggersAutoSave()
     {
         var savePath = Path.Combine(_tempDir, "autosave.vidpl");
         _vm.CurrentPlaylist.FilePath = savePath;
@@ -1113,6 +1172,8 @@ public class PlaylistViewModelTests : IDisposable
         _vm.AddItem(@"C:\Videos\b.mp4");
 
         _vm.MoveItem(0, 1);
+
+        await WaitForConditionAsync(() => File.Exists(savePath));
 
         Assert.True(File.Exists(savePath));
     }
@@ -1239,6 +1300,19 @@ public class PlaylistViewModelTests : IDisposable
     }
 
     private string TempPath(string name) => Path.Combine(_tempDir, name);
+
+    private static async Task WaitForConditionAsync(Func<bool> condition, int timeoutMs = 3000, int pollMs = 25)
+    {
+        var elapsed = 0;
+        while (elapsed < timeoutMs)
+        {
+            if (condition()) return;
+            await Task.Delay(pollMs);
+            elapsed += pollMs;
+        }
+
+        Assert.True(condition(), $"Condition not met within {timeoutMs}ms.");
+    }
 
     [Fact]
     public void PlayItemCommand_ActivatesPlaylistProvider()
