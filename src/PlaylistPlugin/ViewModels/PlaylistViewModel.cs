@@ -207,6 +207,17 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     /// </summary>
     public ICommand MoveToBottomCommand { get; }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PlaylistViewModel"/> class.
+    /// </summary>
+    /// <param name="fileService">Playlist file persistence service.</param>
+    /// <param name="videoEngine">Video engine used by the host application.</param>
+    /// <param name="eventBus">Event bus used for playback events.</param>
+    /// <param name="dialogService">Dialog service for file and confirmation prompts.</param>
+    /// <param name="settings">Optional plugin settings store.</param>
+    /// <param name="updateStatusBar">Optional callback that updates the host status bar item.</param>
+    /// <param name="toastService">Optional toast notification service.</param>
+    /// <param name="playlistProvider">Optional playlist provider for next/previous navigation.</param>
     public PlaylistViewModel(
         PlaylistFileService fileService,
         IVideoEngine videoEngine,
@@ -353,7 +364,12 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
         _currentPlaylist.Items.Move(fromIndex, toIndex);
         AutoSaveIfEnabled();
     }
+
+    /// <summary>
+    /// Shows a toast on the Vido main window.
     /// </summary>
+    /// <param name="message">Primary toast message.</param>
+    /// <param name="boldSuffix">Optional highlighted suffix text.</param>
     public void ShowToast(string message, string? boldSuffix = null)
     {
         _toastService?.Show(message, boldSuffix);
@@ -362,6 +378,8 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     /// <summary>
     /// Shows an error toast (red) on the Vido main window.
     /// </summary>
+    /// <param name="message">Primary toast message.</param>
+    /// <param name="boldSuffix">Optional highlighted suffix text.</param>
     public void ShowErrorToast(string message, string? boldSuffix = null)
     {
         _toastService?.ShowError(message, boldSuffix);
@@ -872,25 +890,5 @@ public sealed class PlaylistViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
-
-    // ── Nested Command Implementations ──
-
-    private sealed class RelayCommand : ICommand
-    {
-        private readonly Action _execute;
-        public RelayCommand(Action execute) => _execute = execute;
-        public event EventHandler? CanExecuteChanged { add { } remove { } }
-        public bool CanExecute(object? parameter) => true;
-        public void Execute(object? parameter) => _execute();
-    }
-
-    private sealed class RelayCommand<T> : ICommand
-    {
-        private readonly Action<T?> _execute;
-        public RelayCommand(Action<T?> execute) => _execute = execute;
-        public event EventHandler? CanExecuteChanged { add { } remove { } }
-        public bool CanExecute(object? parameter) => true;
-        public void Execute(object? parameter) => _execute(parameter is T t ? t : default);
     }
 }
